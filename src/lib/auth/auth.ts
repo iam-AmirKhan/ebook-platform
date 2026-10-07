@@ -2,6 +2,10 @@ import NextAuth, { DefaultSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 
+import dbConnect from "@/lib/db/mongoose";
+import User from "@/models/User";
+import { verifyPassword } from "@/lib/auth/password";
+
 // Augment NextAuth types to include our Mongoose User fields
 declare module "next-auth" {
   interface Session {
@@ -30,11 +34,40 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(_credentials) {
-        // Architecture placeholder:
-        // DB validation and bcrypt password hashing logic will go here in a future phase.
-        // For now, always return null (authentication fails) as per Phase 2A instructions.
-        return null;
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) {
+          return null;
+        }
+
+        const email = String(credentials.email).toLowerCase().trim();
+        const password = String(credentials.password);
+
+        await dbConnect();
+
+        const user = await User.findOne({ email }).lean();
+
+        if (!user || !user.passwordHash) {
+          return null;
+        }
+
+        const isValid = await verifyPassword(password, user.passwordHash);
+
+        if (!isValid) {
+          return null;
+        }
+
+        if (user.status !== "ACTIVE") {
+          return null;
+        }
+
+        return {
+          id: user._id.toString(),
+          name: user.name,
+          email: user.email,
+          image: user.image,
+          role: user.role,
+          status: user.status,
+        };
       },
     }),
   ],
