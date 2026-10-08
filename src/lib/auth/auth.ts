@@ -76,12 +76,74 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     strategy: "jwt",
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async signIn({ user, account }) {
+      if (account?.provider === "google") {
+        if (!user.email) {
+          return false;
+        }
+
+        const email = user.email.toLowerCase().trim();
+        await dbConnect();
+
+        const existingUser = await User.findOne({ email });
+
+        if (existingUser) {
+          // Reject authentication if existing account is suspended or deleted
+          if (existingUser.status !== "ACTIVE") {
+            return false;
+          }
+
+          // Update avatar if missing on existing user
+          if (!existingUser.image && user.image) {
+            existingUser.image = user.image;
+            await existingUser.save();
+          }
+
+          // Attach MongoDB user properties to the user object for token ingestion
+          user.id = existingUser._id.toString();
+          user.role = existingUser.role;
+          user.status = existingUser.status;
+        } else {
+          // Create new user in MongoDB
+          const newUser = await User.create({
+            name: user.name?.trim() || "User",
+            email: email,
+            image: user.image || null,
+            passwordHash: null,
+            role: "USER",
+            status: "ACTIVE",
+          });
+
+          // Attach MongoDB user properties
+          user.id = newUser._id.toString();
+          user.role = newUser.role;
+          user.status = newUser.status;
+        }
+      }
+
+      return true;
+    },
+    async jwt({ token, user, account }) {
       if (user) {
         token.id = user.id;
         token.role = user.role;
         token.status = user.status;
       }
+
+      // Guarantee token enrichment for Google OAuth
+      if (account?.provider === "google" && (!token.role || !token.id)) {
+        await dbConnect();
+        const email = token.email?.toLowerCase().trim();
+        if (email) {
+          const dbUser = await User.findOne({ email }).lean();
+          if (dbUser) {
+            token.id = dbUser._id.toString();
+            token.role = dbUser.role;
+            token.status = dbUser.status;
+          }
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
@@ -95,5 +157,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
   pages: {
     signIn: "/login",
+    error: "/login",
   },
 });
