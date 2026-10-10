@@ -53,8 +53,8 @@ The platform is strictly designed around a **Single Full-Stack Next.js Applicati
 | **OAuth Provider** | Google OAuth (`GoogleProvider`) | **CONFIGURED (INCOMPLETE)** | Provider structure configured in `src/lib/auth/auth.ts`; consent flow not yet completed. |
 | **Public Assets** | Cloudinary CDN | **PLANNED** | For book covers, author profile photos, and marketing media. |
 | **Private Ebooks** | Cloudflare R2 | **PLANNED** | Private S3-compatible bucket for PDF/EPUB storage via signed time-limited URLs. |
-| **Payment (MVP)** | `MockPaymentProvider` | **PLANNED** | Provider-independent abstraction simulating checkout, success, fail, and callback. |
-| **Payment (Live)**| SSLCOMMERZ | **FUTURE** | Production Bangladesh gateway (bKash, Nagad, cards). Requires merchant registration. |
+| **Payment (MVP)** | Manual bKash/Nagad Verification | **DESIGNED (PHASE 6)** | Reader submits external payment evidence (transaction ID + phone) → Admin manual verification dashboard → Atomic Purchase fulfillment via MongoDB transactions. No payment API integration required. Complete audit trails with reviewer tracking. |
+| **Payment (Live)**| SSLCOMMERZ | **FUTURE (PHASE 12)** | Production Bangladesh gateway (bKash, Nagad, cards). Requires merchant registration and API integration. |
 | **Ebook Reader** | Web Canvas / PDF Viewer + Watermarking | **PLANNED** | Protected in-browser reader with dynamic user metadata overlay and progress autosync. |
 | **Hosting Target** | Cloudflare Workers / Edge | **PLANNED** | Edge deployment target; application maintains standard Web/Node runtime portability. |
 
@@ -72,7 +72,18 @@ The platform is strictly designed around a **Single Full-Stack Next.js Applicati
 | **Phase 2C** | Authentication UI | **COMPLETE** | `/login` and `/register` client pages built with React Hook Form and Zod. |
 | **Phase 2D** | Session Helpers & Protected Route | **COMPLETE** | `getCurrentUser` & `requireUser` in `src/lib/auth/session.ts`; protected `/account` page; Route Handler in `src/app/api/auth/[...nextauth]/route.ts`. End-to-end verified. |
 
-### 3.2 Next Immediate Phases
+### 3.2 Phases 2E-6 Status
+
+| Phase | Title | Status | Evidence / Verification |
+| :---: | :--- | :---: | :--- |
+| **Phase 2E** | Google OAuth | **PENDING** | Configure Google Cloud Console project, callback URIs, environment credentials. Verify OAuth sign-in and account linking. |
+| **Phase 2F** | Role-Based Authorization | **PENDING** | Implement server-side role guards (`USER`, `AUTHOR`, `ADMIN`) for protected actions, routes, and layout wrappers. |
+| **Phase 3** | Main Website UI & Design System | **PENDING** | Build navigation header, footer, homepage hero, featured books carousel. |
+| **Phase 4** | Public Book Marketplace | **PENDING** | Implement book catalog with search, filtering, book details view, free preview sample viewer. |
+| **Phase 5** | User Library & Dashboard | **PENDING** | Build authenticated reader dashboard, purchased book shelf, reading progress indicators. |
+| **Phase 6** | Manual bKash/Nagad Payment Verification | **DESIGNED** | Complete manual verification workflow: Reader payment submission → Admin verification dashboard → Atomic Purchase fulfillment. MongoDB transactions ensure data consistency. Unique compound indexes prevent duplicate transaction IDs. Complete audit trails with administrator tracking. No payment gateway API integration required. SSLCOMMERZ reserved for Phase 12 automated integration. |
+
+### 3.3 Next Immediate Phases
 
 1. **Phase 2E — Google OAuth:** Complete Google Cloud Console project setup, configure callback URIs, provide environment credentials, and verify OAuth sign-in and account linking.
 2. **Phase 2F — Role-Based Authorization:** Implement server-side role guards (`USER`, `AUTHOR`, `ADMIN`) for protected actions, routes, and layout wrappers.
@@ -134,7 +145,7 @@ All 8 core models are implemented in `src/models/` using Mongoose schemas with s
   - `timestamps`: `createdAt`, `updatedAt`
 
 #### 5. `Order` (`src/models/Order.ts`)
-- **Responsibility:** Transient payment transaction lifecycle for checkout audits.
+- **Responsibility:** Transient payment transaction lifecycle with manual verification workflow.
 - **Fields:**
   - `user`: `ObjectId -> User` (required, indexed)
   - `items`: Array of `{ book: ObjectId -> Book, title: String, price: Number, quantity: Number }` (min 1 item)
@@ -142,9 +153,15 @@ All 8 core models are implemented in `src/models/` using Mongoose schemas with s
   - `discount`: `Number` (required, default 0, min 0)
   - `total`: `Number` (required, min 0)
   - `currency`: `String` (required, default `"BDT"`)
-  - `paymentMethod`: `"MOCK" | "SSLCOMMERZ"` (required)
-  - `transactionId`: `String | null` (indexed gateway transaction ID)
-  - `status`: `"PENDING" | "PAID" | "FAILED" | "CANCELLED" | "REFUNDED"` (required, default `"PENDING"`)
+  - `paymentMethod`: `"BKASH" | "NAGAD" | "MOCK" | "SSLCOMMERZ"` (required)
+  - `status`: `"PENDING" | "PAYMENT_SUBMITTED" | "PAID" | "REJECTED" | "CANCELLED" | "REFUNDED"` (required, default `"PENDING"`)
+  - `submittedTransactionId`: `String | null` (external payment transaction ID)
+  - `submittedPhoneNumber`: `String | null` (sender phone number for verification)
+  - `submittedAt`: `Date | null` (when reader submitted payment evidence)
+  - `reviewedBy`: `ObjectId -> User | null` (admin who reviewed payment)
+  - `reviewedAt`: `Date | null` (when admin reviewed)
+  - `rejectionReason`: `String | null` (admin rejection explanation)
+  - `submissionHistory`: Array of submission entries for complete audit trail
   - `timestamps`: `createdAt`, `updatedAt`
 
 #### 6. `Purchase` (`src/models/Purchase.ts`)
@@ -380,7 +397,8 @@ CLOUDFLARE_R2_ACCESS_KEY_ID=
 CLOUDFLARE_R2_SECRET_ACCESS_KEY=
 CLOUDFLARE_R2_BUCKET_NAME=
 
-# Payment Gateway (Future / Production Only - SSLCOMMERZ)
+# Payment Gateway (Manual Verification Only - No API Keys Required)
+# Future Production Gateway (Phase 12 - SSLCOMMERZ)
 SSLCOMMERZ_STORE_ID=
 SSLCOMMERZ_STORE_PASSWORD=
 SSLCOMMERZ_IS_SANDBOX=true
@@ -413,8 +431,18 @@ SSLCOMMERZ_IS_SANDBOX=true
   - Implement book catalog with search, filtering, book details view, and free preview sample viewer.
 - **Phase 5: User Library & Dashboard**
   - Build authenticated reader dashboard, purchased book shelf, and reading progress indicators.
-- **Phase 6: Payment System (Mock Provider)**
-  - Implement `PaymentProvider` interface and `MockPaymentProvider`; handle checkout, order creation, verification, and `Purchase` record generation.
+- **Phase 6: Manual bKash/Nagad Payment Verification (DESIGNED)**
+  - Complete manual payment workflow with atomic transaction processing.
+  - Reader submits external payment evidence (transaction ID, sender phone number).
+  - Admin verification dashboard with approval/rejection workflow and audit trails.
+  - MongoDB transactions ensure atomic Order status updates and Purchase record creation.
+  - Unique compound indexes prevent transaction ID duplication across users.
+  - Complete submission history tracking with administrator identity and timestamps.
+  - Payment method support: BKASH and NAGAD (manual verification), MOCK (development only).
+  - No payment gateway API integration required - manual verification eliminates technical complexity.
+  - Self-approval prevention enforced via database-level checks.
+  - Configurable payment instructions display (account numbers, reference codes) without API credentials.
+  - Backward compatibility maintained for existing MOCK orders during development.
 - **Phase 7: Protected Ebook Reader**
   - Build secure in-browser reader with server authorization, dynamic user watermarking, and reading progress auto-sync.
 - **Phase 8: Admin Dashboard**
@@ -464,7 +492,7 @@ To maintain repository integrity and cleanliness, all contributors and AI agents
 | **Separate `Purchase` from `Order`** | Domain Modeling | `Order` reflects transient payment lifecycles; `Purchase` reflects durable, auditable digital content entitlements. | Approved & Implemented |
 | **Target Cloudflare Workers & R2** | Production Hosting & Storage | Global low-latency edge performance, zero egress fees for private ebook storage via R2, tight security controls. | Approved (Planned) |
 | **Cloudinary for Images** | Media Management | Automatic image optimization, responsive resizing, and global CDN delivery for public covers and avatars. | Approved (Planned) |
-| **MockPaymentProvider First** | Payment Strategy | Eliminates upfront merchant verification hurdles and fees while enabling complete end-to-end checkout testing. | Approved (Planned) |
+| **Manual Payment Gateway** | Payment Strategy | Human administrators act as the trust boundary, manually verifying payment transactions against bKash/Nagad merchant accounts before granting digital ownership. This eliminates technical payment integration complexity while maintaining security rigor through atomic database operations and comprehensive audit trails. | Approved (Designed) |
 | **SSLCOMMERZ in Phase 12** | Local Payment Gateway | Industry-standard Bangladeshi gateway supporting bKash, Nagad, cards; deferred until market demand is validated. | Approved (Future) |
 
 ---
@@ -478,11 +506,12 @@ All AI coding assistants working in this repository must strictly adhere to the 
 3. **Do not replace MongoDB/Mongoose** without explicit user approval.
 4. **Do not introduce Prisma, Firebase, or Supabase** without explicit approval.
 5. **Do not install unapproved npm packages.**
-6. **Do not integrate live SSLCOMMERZ** during early phases; use `MockPaymentProvider`.
+6. **Never integrate live payment APIs** during Phase 6; use manual verification workflow with MongoDB transactions.
 7. **Never trust client-supplied payment, ownership, or role claims.**
 8. **Never expose API keys, database connection strings, or storage credentials.**
 9. **Never expose `passwordHash`** in client responses, JWT tokens, or public queries.
-10. **Build incrementally** in accordance with the documented Roadmap phases.
-11. **Run `npx tsc --noEmit`, `npm run lint`, and `npm run build`** after significant changes to confirm build integrity.
-12. **Do NOT run `git commit` or `git push`** — leave committing to the user after verification.
-13. **Distinguish currently implemented features from planned architecture** in all responses.
+10. **Implement comprehensive audit trails** with administrator tracking for all payment decisions.
+11. **Build incrementally** in accordance with the documented Roadmap phases.
+12. **Run `npx tsc --noEmit`, `npm run lint`, and `npm run build`** after significant changes to confirm build integrity.
+13. **Do NOT run `git commit` or `git push`** — leave committing to the user after verification.
+14. **Distinguish currently implemented features from planned architecture** in all responses.
