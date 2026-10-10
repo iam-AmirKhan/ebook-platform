@@ -10,6 +10,8 @@
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
+  /* Bengali serif — Noto Serif Bengali, self-hosted via next/font */
+  --font-bengali: var(--font-bengali);
   /* Brand accent — warm amber for a literary/book feel */
   --color-brand: var(--brand);
   --color-sidebar-ring: var(--sidebar-ring);
