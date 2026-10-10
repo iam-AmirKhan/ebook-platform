@@ -11,7 +11,7 @@ import { BookGrid } from "@/components/books/BookGrid";
 import { CategoryList } from "@/components/categories/CategoryPill";
 
 export const metadata: Metadata = {
-  title: "BoiBazar — Bangladesh's Digital Book Marketplace",
+  title: "Pustoka — Bangladesh's Digital Book Marketplace",
   description:
     "Discover and read ebooks from Bangladeshi and international authors. Browse thousands of titles, pay in BDT, and build your personal digital library.",
 };
@@ -257,7 +257,7 @@ export default async function HomePage() {
       )}
 
       {/* ══════════════════════════════════════════════════
-          WHY BOIBAZAR — trust signals
+          WHY PUSTOKA — trust signals
       ══════════════════════════════════════════════════ */}
       <section
         aria-labelledby="why-heading"
@@ -268,7 +268,7 @@ export default async function HomePage() {
             id="why-heading"
             className="mb-10 text-center text-2xl font-bold tracking-tight text-foreground"
           >
-            Why read with us?
+            Why read with Pustoka?
           </h2>
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {[

@@ -5,7 +5,7 @@ import { CatalogFilters } from "@/components/books/CatalogFilters";
 import { Pagination } from "@/components/books/Pagination";
 
 export const metadata: Metadata = {
-  title: "Books | BoiBazar",
+  title: "Books | Pustoka",
   description: "Browse our entire catalog of ebooks. Find your next great read.",
 };
 

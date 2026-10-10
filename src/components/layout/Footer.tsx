@@ -33,11 +33,11 @@ export function Footer() {
             <Link
               href="/"
               className="flex items-center gap-2 text-foreground transition-opacity hover:opacity-80"
-              aria-label="Boi Bazar home"
+              aria-label="Pustoka home"
             >
               <BookIcon />
               <span className="text-lg font-bold tracking-tight">
-                Boi<span className="text-brand">Bazar</span>
+                Pusto<span className="text-brand">ka</span>
               </span>
             </Link>
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">
@@ -73,7 +73,7 @@ export function Footer() {
         {/* Bottom bar */}
         <div className="mt-10 flex flex-col items-center justify-between gap-4 border-t border-border/60 pt-8 sm:flex-row">
           <p className="text-xs text-muted-foreground">
-            &copy; {currentYear} BoiBazar. All rights reserved.
+            &copy; {currentYear} Pustoka. All rights reserved.
           </p>
           <p className="text-xs text-muted-foreground">
             Built in Bangladesh 🇧🇩

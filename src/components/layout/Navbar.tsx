@@ -28,11 +28,11 @@ export async function Navbar() {
         <Link
           href="/"
           className="flex items-center gap-2.5 text-foreground transition-opacity hover:opacity-80"
-          aria-label="Boi Bazar home"
+          aria-label="Pustoka home"
         >
           <BookIcon />
           <span className="text-lg font-bold tracking-tight">
-            Boi<span className="text-brand">Bazar</span>
+            Pusto<span className="text-brand">ka</span>
           </span>
         </Link>
 

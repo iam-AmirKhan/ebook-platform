@@ -98,7 +98,7 @@ export function MobileMenu({ isAuthenticated, userName }: MobileMenuProps) {
               className="flex items-center gap-2"
             >
               <BookIcon />
-              <span className="font-semibold text-foreground">Boi Bazar</span>
+              <span className="font-semibold text-foreground">Pustoka</span>
             </Link>
             <button
               aria-label="Close menu"

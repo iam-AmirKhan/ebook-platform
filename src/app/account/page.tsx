@@ -7,7 +7,7 @@ import { LibraryBookCard } from "@/components/account/LibraryBookCard";
 import { PurchaseHistoryList } from "@/components/account/PurchaseHistoryList";
 
 export const metadata: Metadata = {
-  title: "My Account | BoiBazar",
+  title: "My Account | Pustoka",
   description: "Manage your digital library, reading progress, and purchases.",
 };
 
