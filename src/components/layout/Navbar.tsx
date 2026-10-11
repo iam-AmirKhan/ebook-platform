@@ -56,6 +56,24 @@ export async function Navbar() {
         <div className="hidden items-center gap-2 md:flex">
           {user ? (
             <>
+              {user.role === "USER" && (
+                <Link
+                  href="/become-author"
+                  id="nav-become-author-link"
+                  className="flex h-8 items-center rounded-md px-3 text-sm font-medium text-foreground/70 transition-colors hover:bg-muted hover:text-foreground font-[family-name:var(--font-bengali)]"
+                >
+                  লেখক হোন
+                </Link>
+              )}
+              {(user.role === "AUTHOR" || user.role === "ADMIN") && (
+                <Link
+                  href="/author"
+                  id="nav-author-link"
+                  className="flex h-8 items-center rounded-md px-3 text-sm font-medium text-foreground/70 transition-colors hover:bg-muted hover:text-foreground font-[family-name:var(--font-bengali)]"
+                >
+                  লেখক ড্যাশবোর্ড
+                </Link>
+              )}
               <Link
                 href="/account"
                 id="nav-account-link"
@@ -106,7 +124,7 @@ export async function Navbar() {
         </div>
 
         {/* Mobile menu (client component) */}
-        <MobileMenu isAuthenticated={!!user} userName={user?.name} />
+        <MobileMenu isAuthenticated={!!user} userName={user?.name} userRole={user?.role} />
       </div>
     </header>
   );

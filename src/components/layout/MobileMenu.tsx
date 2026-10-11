@@ -7,6 +7,7 @@ import { signOut } from "next-auth/react";
 interface MobileMenuProps {
   isAuthenticated: boolean;
   userName?: string | null;
+  userRole?: string | null;
 }
 
 const NAV_LINKS = [
@@ -64,7 +65,7 @@ export function MobileMenuButton({ isOpen, onClick }: { isOpen: boolean; onClick
   );
 }
 
-export function MobileMenu({ isAuthenticated, userName }: MobileMenuProps) {
+export function MobileMenu({ isAuthenticated, userName, userRole }: MobileMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
@@ -156,6 +157,24 @@ export function MobileMenu({ isAuthenticated, userName }: MobileMenuProps) {
                 >
                   My Account
                 </Link>
+                {userRole === "USER" && (
+                  <Link
+                    href="/become-author"
+                    onClick={() => setIsOpen(false)}
+                    className="flex w-full items-center rounded-md px-3 py-2.5 text-sm font-medium text-foreground/80 transition-colors hover:bg-muted hover:text-foreground font-[family-name:var(--font-bengali)]"
+                  >
+                    লেখক হোন
+                  </Link>
+                )}
+                {(userRole === "AUTHOR" || userRole === "ADMIN") && (
+                  <Link
+                    href="/author"
+                    onClick={() => setIsOpen(false)}
+                    className="flex w-full items-center rounded-md px-3 py-2.5 text-sm font-medium text-foreground/80 transition-colors hover:bg-muted hover:text-foreground font-[family-name:var(--font-bengali)]"
+                  >
+                    লেখক ড্যাশবোর্ড
+                  </Link>
+                )}
                 <button
                   onClick={async () => {
                     setIsOpen(false);

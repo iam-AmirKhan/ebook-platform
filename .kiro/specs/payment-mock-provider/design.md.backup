@@ -1,0 +1,2807 @@
+# Technical Design: Payment Mock Provider
+
+## Overview
+
+The Payment Mock Provider implements a complete checkout-to-ownership flow for purchasing digital ebooks in the Bangladesh-focused ebook platform. This feature bridges the gap between cart selection and reader access by creating transient payment orders, simulating payment processing through a deterministic mock provider, verifying payment results server-side, and granting durable Purchase records that unlock permanent book access.
+
+### Core Architecture Principles
+
+1. **Order ≠ Purchase**: Orders represent transient payment lifecycles (PENDING → PAID/FAILED/CANCELLED/REFUNDED), while Purchases represent durable, auditable digital ownership entitlements created ONLY after server-verified payment success.
+
+2. **Zero Client Trust**: All prices, payment statuses, and ownership grants are determined exclusively server-side. Clients supply only book identifiers and trigger actions; the server fetches current prices, validates eligibility, and verifies payment outcomes.
+
+3. **Cryptographically Secure Payment Attempts**: Each payment initiation generates a server-controlled, opaque payment attempt identifier (UUID v4). Mock payment verification requires matching this identifier, preventing clients from forging successful payment callbacks.
+
+4. **ACID Transaction Guarantees**: MongoDB Atlas M0 free tier supports multi-document transactions via replica sets. Order fulfillment uses transactions to atomically update order status and create all purchase records, ensuring no partial fulfillment states.
+
+5. **Database-Level Idempotency**: Unique compound index `{order: 1, book: 1}` on Purchase collection enforces one purchase per order/book combination at database level, preventing race conditions in concurrent fulfillment.
+
+6. **Provider Abstraction**: The PaymentProvider interface decouples business logic from payment implementation, enabling seamless migration from MockPaymentProvider to SSLCOMMERZ in Phase 12.
+
+### Key Components
+
+- **Checkout System**: Server-side order creation, validation, and fulfillment orchestration
+- **Payment Provider**: Abstract interface with mock concrete implementation (future: SSLCOMMERZ)
+- **Order Lifecycle Manager**: Atomic status transitions with audit trail preservation
+- **Purchase Fulfillment Engine**: Idempotent ownership record creation with duplicate detection
+- **Mock Payment Simulator**: Development-only UI for testing success/failure/cancellation scenarios
+
+### System Context Diagram
+
+```mermaid
+graph TB
+    User[Authenticated User]
+    Cart[Cart Items]
+    CheckoutUI[Checkout Page UI]
+    CheckoutAction[Checkout Server Action]
+    PaymentProvider[Payment Provider Interface]
+    MockProvider[Mock Payment Provider]
+    SimulatorUI[Mock Payment Simulator]
+    ResultUI[Payment Result Pages]
+    
+    User --> Cart
+    Cart --> CheckoutUI
+    CheckoutUI --> CheckoutAction
+    CheckoutAction --> PaymentProvider
+    PaymentProvider --> MockProvider
+    MockProvider --> SimulatorUI
+    SimulatorUI --> CheckoutAction
+    CheckoutAction --> ResultUI
+    
+    subgraph "Database"
+        OrderDB[(Order Collection)]
+        PurchaseDB[(Purchase Collection)]
+        BookDB[(Book Collection)]
+    end
+    
+    CheckoutAction --> OrderDB
+    CheckoutAction --> PurchaseDB
+    CheckoutAction --> BookDB
+```
+
+---
+
+## Architecture
+
+### Component Architecture
+
+The payment system follows a layered architecture with clear separation between presentation, orchestration, and persistence concerns:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Presentation Layer                        │
+│  (Checkout Page, Mock Simulator, Result Pages)              │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────────────────┐
+│                   Orchestration Layer                        │
+│         (Server Actions: createOrder, initiatePayment,       │
+│          verifyPaymentCallback, getOrderDetails)             │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────────────────┐
+│                  Business Logic Layer                        │
+│    (Payment Provider Interface, Order State Manager,         │
+│     Purchase Fulfillment, Validation Services)               │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────────────────┐
+│                   Persistence Layer                          │
+│         (MongoDB Models: Order, Purchase, Book)              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Payment Provider Architecture
+
+**Abstract Interface** (`src/lib/payments/types.ts`):
+
+```typescript
+interface PaymentProvider {
+  /**
+   * Initiates payment for an order, returning transaction ID and payment URL
+   * @throws PaymentInitializationError on failure
+   */
+  initiatePayment(order: IOrderDocument): Promise<PaymentInitResult>;
+  
+  /**
+   * Verifies payment status from gateway callback data
+   * @returns Verification result with normalized status
+   */
+  verifyPayment(
+    transactionId: string, 
+    callbackData: unknown
+  ): Promise<PaymentVerifyResult>;
+  
+  /**
+   * Processes payment gateway callback, extracting normalized results
+   * @returns Standardized callback result
+   */
+  handleCallback(callbackData: unknown): Promise<PaymentCallbackResult>;
+}
+
+interface PaymentInitResult {
+  success: boolean;
+  transactionId?: string;
+  paymentUrl?: string;
+  error?: string;
+}
+
+interface PaymentVerifyResult {
+  verified: boolean;
+  status: OrderStatus;
+  transactionId: string;
+  error?: string;
+}
+
+interface PaymentCallbackResult {
+  success: boolean;
+  orderId: string;
+  status: OrderStatus;
+  transactionId: string;
+  error?: string;
+}
+```
+
+**Mock Implementation** (`src/lib/payments/MockPaymentProvider.ts`):
+
+- **Payment Attempt ID**: Server-generated UUID v4 for each payment initiation (cryptographically random, unpredictable)
+- **Transaction ID Format**: `MOCK_TXN_{paymentAttemptId}_{timestamp}`
+- **Deterministic Behavior**: No external HTTP requests, instant responses
+- **Test Scenario Support**: Explicit success/failure/cancellation simulation
+- **Payment URL Format**: `/checkout/mock-payment/{transactionId}`
+- **Security Note**: Mock payment simulates payment flow but does NOT represent actual money movement. Payment attempt IDs prevent client forgery of success callbacks.
+
+**Provider Factory** (`src/lib/payments/factory.ts`):
+
+```typescript
+export function getPaymentProvider(): PaymentProvider {
+  const provider = process.env.PAYMENT_PROVIDER || 'MOCK';
+  
+  if (provider === 'MOCK') {
+    return new MockPaymentProvider();
+  }
+  
+  // Future: return new SSLCommerzPaymentProvider();
+  throw new Error(`Unsupported payment provider: ${provider}`);
+}
+```
+
+### Mock Payment Security Model
+
+**Critical Distinction: Development Simulation vs Real Payment Processing**
+
+The Mock Payment Provider is a **development-only simulation tool** that enables testing the complete checkout flow without external payment gateway dependencies or real monetary transactions. It simulates user payment decisions (success/failure/cancellation) in a controlled environment while enforcing the same security boundaries that will exist in production.
+
+**What Mock Payment IS:**
+- A deterministic payment flow simulator for development and testing
+- A tool to validate checkout logic, order fulfillment, and purchase creation
+- An architectural foundation demonstrating the PaymentProvider interface pattern
+
+**What Mock Payment IS NOT:**
+- A real payment processor (no money movement occurs)
+- A client-controllable "fake success" mechanism (server enforces all validations)
+- A security bypass (all authentication, authorization, and verification checks remain active)
+
+**Security Invariants (Identical to Production):**
+
+1. **User Authentication**: All payment operations require valid session via `requireUser()`
+2. **Order Ownership**: All operations verify `order.user === session.user.id` before execution
+3. **Payment Attempt Validation**: Server-generated UUID v4 attemptIds prevent forgery
+4. **State Transition Control**: Server controls all order status changes based on validated verification
+5. **Explicit User Intent**: Mock simulator translates button clicks (Success/Failure/Cancel) into explicit status parameters sent to server
+6. **Server-Side Verification**: Client cannot send arbitrary "PAID" status — server validates all preconditions before transitioning order state
+
+**Mock Payment Simulator Flow:**
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant MockUI as Mock Simulator UI
+    participant Server as verifyPaymentCallback
+    participant DB as Database
+    
+    User->>MockUI: Click "Simulate Success"
+    MockUI->>Server: verifyPaymentCallback(txnId, 'SUCCESS')
+    
+    Server->>Server: Authenticate session user
+    Server->>Server: Parse txnId → extract attemptId + orderId
+    Server->>DB: Fetch Order by orderId
+    Server->>Server: Authorize: order.user === session.user.id
+    Server->>Server: Validate: order.paymentAttemptId === attemptId
+    Server->>Server: Validate: order.status === "PENDING"
+    Server->>Server: Validate: order age < 24 hours
+    
+    alt All Validations Pass
+        Server->>DB: Start MongoDB Transaction
+        Server->>DB: Atomic Update: PENDING → PAID (with conditions)
+        Server->>DB: Create Purchase Records
+        Server->>DB: Commit Transaction
+        Server-->>MockUI: {success: true, status: "PAID"}
+        MockUI->>User: Redirect to Success Page
+    else Any Validation Fails
+        Server-->>MockUI: {success: false, error: "..."}
+        MockUI->>User: Display Error Message
+    end
+```
+
+**Security Validation Checklist (verifyPaymentCallback):**
+
+The server enforces these checks **in order** before any state transition:
+
+1. ✅ **Session Authentication**: Valid session exists (`requireUser()`)
+2. ✅ **Transaction ID Parsing**: Extract `paymentAttemptId` and `orderId` from `MOCK_TXN_{attemptId}_{timestamp}`
+3. ✅ **Order Existence**: Order document exists for extracted `orderId`
+4. ✅ **Order Ownership**: `order.user.toString() === session.user.id`
+5. ✅ **Payment Attempt Validation**: `order.paymentAttemptId === extractedAttemptId` (rejects stale attempts)
+6. ✅ **Order State Validation**: `order.status === "PENDING"` (rejects terminal states)
+7. ✅ **Expiration Check**: `(Date.now() - order.createdAt) < 24 hours` (rejects expired orders)
+8. ✅ **Atomic Fulfillment**: Transaction ensures order update + purchase creation are atomic
+
+**Only after ALL validations pass** does the server transition order status and create purchases.
+
+**Threat Model: What Clients CANNOT Do:**
+
+| Malicious Action | Prevention Mechanism |
+|------------------|---------------------|
+| Send arbitrary "PAID" status | Server validates attempt ID, order state, expiration before accepting |
+| Forge transaction IDs | UUID v4 attemptIds are cryptographically random (128-bit), unpredictable |
+| Reuse old transaction IDs | Server tracks current `paymentAttemptId` per order, rejects stale attempts |
+| Bypass authentication | All endpoints require valid session, verified server-side |
+| Access other users' orders | Authorization check: `order.user === session.user.id` |
+| Complete expired orders | Expiration checked atomically with state transition (query condition) |
+| Create duplicate purchases | Unique constraint `{order: 1, book: 1}` enforced at database level |
+| Bypass price validation | All prices fetched server-side from Book model |
+
+### Security Architecture
+
+**Defense in Depth Layers**:
+
+1. **Authentication Boundary**: All endpoints protected via `requireUser()` session helper
+2. **Authorization Boundary**: Order access verified via `order.user === session.user.id` check
+3. **Input Validation Boundary**: All inputs parsed through Zod schemas before processing
+4. **Price Integrity Boundary**: All prices fetched server-side from Book model, client values rejected
+5. **Payment Attempt Boundary**: Server-controlled opaque payment attempt IDs (UUID v4), clients cannot predict or forge
+6. **Payment Verification Boundary**: All payment results verified through PaymentProvider interface with attempt ID validation
+7. **Ownership Integrity Boundary**: Database-level unique constraint on `{order: 1, book: 1}` prevents duplicate purchases
+8. **Expiration Enforcement Boundary**: Atomic query conditions prevent TOCTOU vulnerabilities (checked during state transition, not before)
+
+**Security Flow Diagram**:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant AuthGuard
+    participant InputValidator
+    participant PriceFetcher
+    participant PaymentVerifier
+    participant PurchaseCreator
+    
+    Client->>AuthGuard: Request with session cookie
+    AuthGuard->>AuthGuard: Validate session JWT
+    alt Unauthenticated
+        AuthGuard-->>Client: Redirect /login
+    end
+    
+    AuthGuard->>InputValidator: Forward validated user + request
+    InputValidator->>InputValidator: Parse with Zod schema
+    alt Invalid Input
+        InputValidator-->>Client: 400 Bad Request
+    end
+    
+    InputValidator->>PriceFetcher: Forward validated input
+    PriceFetcher->>PriceFetcher: Fetch current prices from DB
+    alt Price Fetch Failed
+        PriceFetcher-->>Client: 404 Book Not Found
+    end
+    
+    PriceFetcher->>PaymentVerifier: Forward server-fetched data
+    PaymentVerifier->>PaymentVerifier: Verify via provider interface
+    alt Verification Failed
+        PaymentVerifier-->>Client: 400 Verification Failed
+    end
+    
+    PaymentVerifier->>PurchaseCreator: Forward verified payment
+    PurchaseCreator->>PurchaseCreator: Check duplicate ownership
+    PurchaseCreator-->>Client: Success response
+```
+
+---
+
+## Components and Interfaces
+
+### 1. Server Actions (`src/actions/checkout.ts`)
+
+All checkout operations are exposed as Next.js Server Actions with `"use server"` directive:
+
+#### `createOrderFromCart(input: CreateOrderInput): Promise<OrderResponse>`
+
+**Purpose**: Creates a PENDING order from cart items after validation and ownership checks.
+
+**Input Validation**:
+```typescript
+const CreateOrderInput = z.object({
+  items: z.array(
+    z.object({
+      bookId: z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid book ID format"),
+      quantity: z.number().int().positive().default(1)
+    })
+  ).min(1, "Cart must contain at least one item")
+   .max(50, "Maximum 50 items per order")
+});
+
+type CreateOrderInput = z.infer<typeof CreateOrderInput>;
+```
+
+**Process Flow**:
+1. Parse input with Zod schema
+2. Authenticate user via `requireUser()`
+3. For each cart item:
+   - Fetch Book document (verify exists, status === "PUBLISHED")
+   - Check ownership: query Purchase collection `{user, book, status: "ACTIVE"}`
+   - If ACTIVE purchase exists, reject with "You already own: {title}"
+4. Calculate prices:
+   - `itemPrice = book.discountPrice ?? book.price`
+   - `subtotal = sum(itemPrice * quantity)`
+   - `discount = 0` (Phase 6 baseline)
+   - `total = subtotal - discount`
+5. Create Order document:
+   - `user`: session user ID
+   - `items`: server-fetched book, title, price, quantity
+   - `subtotal`, `discount`, `total`, `currency: "BDT"`
+   - `paymentMethod: "MOCK"`, `status: "PENDING"`
+   - `transactionId: null`
+6. Return `{success: true, orderId: order._id.toString()}`
+
+**Error Handling**:
+- Book not found: `{success: false, error: "Book not found: {bookId}"}`
+- Book not published: `{success: false, error: "Book not available: {title}"}`
+- Already owned: `{success: false, error: "You already own: {title}"}`
+- Database error: `{success: false, error: "Failed to create order. Please try again."}`
+
+**Logging**: Log user ID, order ID, item count, total amount on success.
+
+---
+
+#### `initiatePayment(orderId: string): Promise<PaymentInitResult>`
+
+**Purpose**: Generates cryptographically secure payment attempt ID, updates order atomically, and returns mock payment URL.
+
+**Process Flow**:
+1. Authenticate user via `requireUser()`
+2. Fetch Order by orderId
+3. Authorize: verify `order.user.toString() === session.user.id`
+4. Generate new payment attempt ID: `crypto.randomUUID()` (UUID v4, cryptographically random)
+5. Get payment provider via factory
+6. Call `provider.initiatePayment(order, paymentAttemptId)`:
+   - Mock generates `MOCK_TXN_{paymentAttemptId}_{Date.now()}`
+   - Returns `paymentUrl: /checkout/mock-payment/{transactionId}`
+7. **Atomic Update with Expiration Check**:
+   ```typescript
+   const EXPIRATION_MS = 24 * 60 * 60 * 1000;
+   const expirationDate = new Date(Date.now() - EXPIRATION_MS);
+   
+   const result = await Order.updateOne(
+     {
+       _id: orderId,
+       status: {$in: ["PENDING", "FAILED", "CANCELLED"]}, // Retriable states only
+       createdAt: {$gt: expirationDate}  // Atomic expiration check
+     },
+     {
+       $set: {
+         paymentAttemptId: attemptId,
+         transactionId: transactionId
+       }
+     }
+   );
+   
+   if (result.matchedCount === 0) {
+     // Order is terminal state OR expired
+     const currentOrder = await Order.findById(orderId);
+     
+     if (currentOrder.status === "PAID" || currentOrder.status === "REFUNDED") {
+       return {success: false, error: "Order already completed"};
+     }
+     
+     const ageMs = Date.now() - currentOrder.createdAt.getTime();
+     if (ageMs > EXPIRATION_MS) {
+       const ageHours = Math.floor(ageMs / (1000 * 60 * 60));
+       return {success: false, error: `Order expired (created ${ageHours}h ago). Please create a new order.`};
+     }
+     
+     // Unexpected state
+     return {success: false, error: "Order cannot be paid"};
+   }
+   ```
+8. Return `PaymentInitResult {success: true, transactionId, paymentUrl}`
+
+**Error Handling**:
+- Order not found: `{success: false, error: "Order not found"}`
+- Unauthorized: `{success: false, error: "Access denied"}`
+- Terminal state: `{success: false, error: "Order already completed"}`
+- Expired order: `{success: false, error: "Order expired (created {hours}h ago). Please create a new order."}`
+- Provider error: `{success: false, error: "Payment initialization failed"}`
+
+**Atomic Expiration Enforcement**:
+- Expiration checked as MongoDB query condition (`createdAt: {$gt: expirationDate}`)
+- Prevents TOCTOU race conditions (time-of-check-time-of-use)
+- Client UI expiration warnings are UX enhancements only, not security boundaries
+- Concurrent requests cannot bypass expiration check
+
+**Security Guarantees**:
+- New payment attempt ID generated for each initiation (retries get fresh IDs)
+- Stale payment attempts from previous initiations become invalid immediately
+- Client cannot predict or forge payment attempt IDs (128-bit UUID v4)
+- Atomic update ensures only one thread can transition order state
+- Expiration enforced atomically, no race conditions
+
+---
+
+#### `verifyPaymentCallback(transactionId: string, status: 'SUCCESS' | 'FAILED' | 'CANCELLED'): Promise<PaymentCallbackResult>`
+
+**Purpose**: Verifies payment result with cryptographic attempt validation and creates Purchase records atomically on success.
+
+**Process Flow**:
+1. Authenticate user via `requireUser()`
+2. Get payment provider via factory
+3. Call `provider.verifyPayment(transactionId, {status})`:
+   - Parse paymentAttemptId and orderId from transaction ID format `MOCK_TXN_{attemptId}_{timestamp}`
+   - Return `{verified: true, status: OrderStatus, transactionId, paymentAttemptId, orderId}`
+4. If verification parsing fails, return error
+5. Fetch Order by extracted orderId
+6. Authorize: verify `order.user.toString() === session.user.id`
+7. **Attempt Validation**: If `order.paymentAttemptId !== verifyResult.paymentAttemptId`, reject "Invalid payment attempt (stale or forged)"
+8. **Transaction ID Validation**: If `order.transactionId !== transactionId`, reject "Transaction ID mismatch"
+9. **Atomic Fulfillment with All Validations** (if target status === "PAID"):
+    ```typescript
+    const EXPIRATION_MS = 24 * 60 * 60 * 1000;
+    const expirationDate = new Date(Date.now() - EXPIRATION_MS);
+    
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    
+    try {
+      // Atomic Status Update with ALL conditions (expiration + state + attempt)
+      const updateResult = await Order.updateOne(
+        {
+          _id: orderId,
+          status: "PENDING",                    // Must be pending
+          paymentAttemptId: validatedAttemptId, // Must match current attempt
+          createdAt: {$gt: expirationDate}      // Must not be expired (atomic check)
+        },
+        {
+          $set: {status: "PAID"}
+        },
+        {session}
+      );
+      
+      if (updateResult.matchedCount === 0) {
+        // Order already processed, expired, or stale attempt
+        await session.abortTransaction();
+        
+        // Determine reason for failure
+        const currentOrder = await Order.findById(orderId);
+        
+        // Check if already paid (idempotent success)
+        if (currentOrder.status === "PAID" && currentOrder.paymentAttemptId === validatedAttemptId) {
+          console.log(`Idempotent success: Order ${orderId} already paid with attempt ${validatedAttemptId}`);
+          return {success: true, orderId, status: "PAID", transactionId, message: "Already paid"};
+        }
+        
+        // Check if stale attempt
+        if (currentOrder.paymentAttemptId !== validatedAttemptId) {
+          const ageMs = Date.now() - currentOrder.createdAt.getTime();
+          if (ageMs > EXPIRATION_MS) {
+            return {success: false, error: "Order expired (cannot complete payment)"};
+          }
+          return {success: false, error: "Payment attempt is stale (newer attempt exists)"};
+        }
+        
+        // Check if expired
+        const ageMs = Date.now() - currentOrder.createdAt.getTime();
+        if (ageMs > EXPIRATION_MS) {
+          const ageHours = Math.floor(ageMs / (1000 * 60 * 60));
+          return {success: false, error: `Order expired (created ${ageHours}h ago). Cannot complete payment.`};
+        }
+        
+        // Other terminal state
+        return {success: false, error: `Order cannot be paid (status: ${currentOrder.status})`};
+      }
+      
+      // Create Purchase records with unique constraint protection
+      for (const item of order.items) {
+        // Verify book still exists
+        const book = await Book.findById(item.book).session(session);
+        if (!book) {
+          throw new Error(`Book ${item.book} not found during fulfillment`);
+        }
+        
+        // Create purchase (unique {order, book} constraint prevents duplicates)
+        await Purchase.create([{
+          user: order.user,
+          book: item.book,
+          order: order._id,
+          price: item.price,
+          currency: order.currency,
+          status: "ACTIVE",
+          purchasedAt: new Date()
+        }], {session});
+      }
+      
+      // Commit transaction atomically
+      await session.commitTransaction();
+      console.log(`Order ${orderId} fulfilled successfully with ${order.items.length} purchases`);
+      return {success: true, orderId, status: "PAID", transactionId};
+      
+    } catch (error) {
+      await session.abortTransaction();
+      
+      // Handle duplicate key errors gracefully (idempotent success)
+      if (error.code === 11000) {
+        console.warn(`Duplicate purchase detected for order ${orderId} (idempotent success)`);
+        return {success: true, orderId, status: "PAID", transactionId, message: "Already fulfilled"};
+      }
+      
+      // Other errors: transaction rolled back, order remains PENDING
+      console.error(`Fulfillment failed for order ${orderId}:`, error);
+      return {
+        success: false,
+        error: "Payment verification succeeded but fulfillment failed. Please retry or contact support."
+      };
+      
+    } finally {
+      session.endSession();
+    }
+    ```
+10. **Non-PAID Status Update** (FAILED/CANCELLED):
+    ```typescript
+    // Simple status update (no transaction needed)
+    await Order.updateOne(
+      {_id: orderId, paymentAttemptId: validatedAttemptId},
+      {$set: {status: verifiedStatus}}
+    );
+    ```
+11. Return `{success: true, orderId, status, transactionId}`
+
+**Error Handling**:
+- Verification failed: `{success: false, error: "Payment verification failed (invalid transaction ID format)"}`
+- Order not found: `{success: false, error: "Order not found"}`
+- Unauthorized: `{success: false, error: "Access denied"}`
+- Stale attempt: `{success: false, error: "Payment attempt is stale (newer attempt exists)"}`
+- Expired (atomic): `{success: false, error: "Order expired (created {hours}h ago). Cannot complete payment."}`
+- Transaction mismatch: `{success: false, error: "Transaction ID mismatch"}`
+- Book deleted: Transaction rolls back, return `{success: false, error: "Fulfillment failed (book unavailable). Please contact support."}`
+- Fulfillment failure: Transaction rolls back, return `{success: false, error: "Payment verification succeeded but fulfillment failed. Please retry or contact support."}`
+
+**Atomic Guarantees**:
+- Expiration checked as query condition (no TOCTOU vulnerability)
+- Payment attempt validation in transaction condition (stale attempts cannot update)
+- Order status + purchase creation are atomic (all-or-nothing)
+- Concurrent requests handled via conditional update (matchedCount check)
+- Transaction rollback on any error (no partial fulfillment states)
+
+**Idempotency Handling**:
+- If order already PAID with same attemptId: return success (idempotent)
+- If duplicate purchase creation attempted: unique constraint triggers, treat as success
+- If concurrent requests: first succeeds, others get idempotent response
+
+**Logging**:
+- Log verification attempts with transaction ID, order ID, status, payment attempt ID
+- Log transaction commit/abort outcomes
+- Log idempotent operation detections (duplicate keys, already-paid orders)
+- Log stale attempt rejections
+- Never log sensitive payment data beyond IDs
+
+**Security Guarantees**:
+- Payment attempt ID validation prevents forged callbacks
+- Expiration enforced atomically (query condition in transaction)
+- Transaction rollback prevents partial fulfillment
+- Unique constraint prevents duplicate purchases
+- Atomic conditional update prevents race conditions
+
+---
+
+#### `getOrderDetails(orderId: string): Promise<OrderDetailsResponse>`
+
+**Purpose**: Fetches order for display on checkout and result pages.
+
+**Process Flow**:
+1. Authenticate user via `requireUser()`
+2. Fetch Order by orderId with `.populate('items.book', 'title coverImage')`
+3. Authorize: verify `order.user.toString() === session.user.id`
+4. Calculate order age: `ageHours = (Date.now() - order.createdAt.getTime()) / (1000 * 60 * 60)`
+5. Return order with computed fields:
+   ```typescript
+   {
+     success: true,
+     order: {
+       id: order._id.toString(),
+       items: order.items.map(item => ({
+         bookId: item.book._id.toString(),
+         title: item.title,
+         price: item.price,
+         quantity: item.quantity,
+         lineTotal: item.price * item.quantity
+       })),
+       subtotal: order.subtotal,
+       discount: order.discount,
+       total: order.total,
+       currency: order.currency,
+       status: order.status,
+       paymentMethod: order.paymentMethod,
+       transactionId: order.transactionId,
+       createdAt: order.createdAt.toISOString(),
+       isExpired: ageHours > 24
+     }
+   }
+   ```
+
+**Error Handling**:
+- Order not found: `{success: false, error: "Order not found"}`
+- Unauthorized: `{success: false, error: "Access denied"}`
+
+---
+
+#### `checkUserOwnsBook(userId: string, bookId: string): Promise<boolean>`
+
+**Purpose**: Utility function for ownership verification (used in reader access, download gates).
+
+**Process Flow**:
+1. Query Purchase collection: `Purchase.findOne({user: userId, book: bookId, status: "ACTIVE"})`
+2. Return `!!purchase`
+
+**Performance**: Uses compound index `{user: 1, book: 1}` for O(log n) lookup.
+
+---
+
+### 2. Payment Provider Implementation
+
+#### MockPaymentProvider (`src/lib/payments/MockPaymentProvider.ts`)
+
+```typescript
+import crypto from 'crypto';
+
+export class MockPaymentProvider implements PaymentProvider {
+  async initiatePayment(
+    order: IOrderDocument,
+    paymentAttemptId: string
+  ): Promise<PaymentInitResult> {
+    const timestamp = Date.now();
+    const transactionId = `MOCK_TXN_${paymentAttemptId}_${timestamp}`;
+    const paymentUrl = `/checkout/mock-payment/${transactionId}`;
+    
+    return {
+      success: true,
+      transactionId,
+      paymentUrl
+    };
+  }
+  
+  async verifyPayment(
+    transactionId: string,
+    callbackData: unknown
+  ): Promise<PaymentVerifyResult> {
+    // Parse transaction ID: MOCK_TXN_{paymentAttemptId}_{timestamp}
+    const match = transactionId.match(/^MOCK_TXN_([0-9a-f-]{36})_(\d+)$/);
+    
+    if (!match) {
+      return {
+        verified: false,
+        status: "PENDING",
+        transactionId,
+        error: "Invalid transaction ID format"
+      };
+    }
+    
+    const [, paymentAttemptId, timestamp] = match;
+    const data = callbackData as {
+      status: 'SUCCESS' | 'FAILED' | 'CANCELLED';
+      orderId: string;
+    };
+    
+    // Map mock status to order status
+    const statusMap: Record<string, OrderStatus> = {
+      SUCCESS: "PAID",
+      FAILED: "FAILED",
+      CANCELLED: "CANCELLED"
+    };
+    
+    const orderStatus = statusMap[data.status] || "FAILED";
+    
+    return {
+      verified: true,
+      status: orderStatus,
+      transactionId,
+      paymentAttemptId,
+      orderId: data.orderId
+    };
+  }
+  
+  async handleCallback(callbackData: unknown): Promise<PaymentCallbackResult> {
+    const data = callbackData as {
+      transactionId: string;
+      orderId: string;
+      status: 'SUCCESS' | 'FAILED' | 'CANCELLED';
+    };
+    
+    const verifyResult = await this.verifyPayment(data.transactionId, data);
+    
+    if (!verifyResult.verified) {
+      return {
+        success: false,
+        orderId: data.orderId,
+        status: "FAILED",
+        transactionId: data.transactionId,
+        error: verifyResult.error
+      };
+    }
+    
+    return {
+      success: true,
+      orderId: data.orderId,
+      status: verifyResult.status,
+      transactionId: data.transactionId,
+      paymentAttemptId: verifyResult.paymentAttemptId
+    };
+  }
+}
+```
+
+**Security Notes**:
+- Payment attempt ID is UUID v4 (128-bit cryptographic randomness)
+- Transaction ID format enforces UUID validation via regex
+- Verification extracts and returns payment attempt ID for server validation
+- Mock provider DOES NOT represent actual money movement
+- Production SSLCOMMERZ provider will use gateway-issued transaction IDs
+
+---
+
+### 3. UI Components
+
+#### Checkout Page (`src/app/checkout/[orderId]/page.tsx`)
+
+**Server Component** displaying order summary and payment initiation:
+
+```typescript
+export default async function CheckoutPage({
+  params
+}: {
+  params: Promise<{orderId: string}>
+}) {
+  const {orderId} = await params;
+  const user = await requireUser();
+  
+  const orderResult = await getOrderDetails(orderId);
+  
+  if (!orderResult.success) {
+    return <ErrorDisplay message={orderResult.error} />;
+  }
+  
+  const {order} = orderResult;
+  
+  if (order.isExpired) {
+    return <ExpiredOrderDisplay orderId={orderId} />;
+  }
+  
+  if (order.status !== "PENDING") {
+    return <OrderStatusDisplay order={order} />;
+  }
+  
+  return <CheckoutForm order={order} />;
+}
+```
+
+**CheckoutForm** (Client Component):
+- Display order items table (title, price, quantity, line total)
+- Display subtotal, discount, total
+- Display payment method badge: "Mock Payment (Testing Only)"
+- "Proceed to Payment" button:
+  - On click: call `initiatePayment(orderId)`
+  - On success: redirect to payment URL
+  - Show loading state during API call
+  - Display error message on failure
+
+---
+
+#### Mock Payment Simulator (`src/app/checkout/mock-payment/[transactionId]/page.tsx`)
+
+**Server Component** validating transaction, then rendering client simulator:
+
+```typescript
+export default async function MockPaymentPage({
+  params
+}: {
+  params: Promise<{transactionId: string}>
+}) {
+  const {transactionId} = await params;
+  const user = await requireUser();
+  
+  // Parse orderId from transaction ID
+  const match = transactionId.match(/^MOCK_TXN_([0-9a-fA-F]{24})_(\d+)$/);
+  if (!match) {
+    return <ErrorDisplay message="Invalid transaction ID" />;
+  }
+  
+  const orderId = match[1];
+  const orderResult = await getOrderDetails(orderId);
+  
+  if (!orderResult.success) {
+    return <ErrorDisplay message={orderResult.error} />;
+  }
+  
+  return <MockPaymentSimulator order={orderResult.order} transactionId={transactionId} />;
+}
+```
+
+**MockPaymentSimulator** (Client Component):
+- Display warning banner: "⚠️ Development Mode - Mock Payment Simulator"
+- Display order summary (read-only)
+- Three action buttons:
+  - **"✓ Simulate Success"** (green): calls `verifyPaymentCallback(transactionId, 'SUCCESS')`
+  - **"✗ Simulate Failure"** (red): calls `verifyPaymentCallback(transactionId, 'FAILED')`
+  - **"⊗ Simulate Cancellation"** (gray): calls `verifyPaymentCallback(transactionId, 'CANCELLED')`
+- On button click:
+  - Show loading state
+  - Call server action
+  - Redirect based on result status:
+    - PAID → `/checkout/success/${orderId}`
+    - FAILED → `/checkout/failed/${orderId}`
+    - CANCELLED → `/checkout/cancelled/${orderId}`
+
+---
+
+#### Success Page (`src/app/checkout/success/[orderId]/page.tsx`)
+
+**Server Component**:
+
+```typescript
+export default async function SuccessPage({
+  params
+}: {
+  params: Promise<{orderId: string}>
+}) {
+  const {orderId} = await params;
+  const user = await requireUser();
+  
+  const orderResult = await getOrderDetails(orderId);
+  
+  if (!orderResult.success || orderResult.order.status !== "PAID") {
+    redirect(`/checkout/${orderId}`);
+  }
+  
+  return (
+    <SuccessDisplay>
+      <CheckIcon className="text-green-600" />
+      <h1>Payment Successful!</h1>
+      <OrderSummary order={orderResult.order} />
+      <ButtonGroup>
+        <Link href="/account/library">View Library</Link>
+        <Link href="/books">Continue Shopping</Link>
+      </ButtonGroup>
+    </SuccessDisplay>
+  );
+}
+```
+
+---
+
+#### Failure Page (`src/app/checkout/failed/[orderId]/page.tsx`)
+
+**Server Component**:
+
+```typescript
+export default async function FailedPage({
+  params
+}: {
+  params: Promise<{orderId: string}>
+}) {
+  const {orderId} = await params;
+  const user = await requireUser();
+  
+  const orderResult = await getOrderDetails(orderId);
+  
+  if (!orderResult.success || orderResult.order.status !== "FAILED") {
+    redirect(`/checkout/${orderId}`);
+  }
+  
+  return (
+    <FailureDisplay>
+      <XIcon className="text-red-600" />
+      <h1>Payment Failed</h1>
+      <p>Your payment could not be processed. Please try again or contact support.</p>
+      <OrderSummary order={orderResult.order} />
+      <ButtonGroup>
+        <Link href={`/checkout/${orderId}`}>Try Again</Link>
+        <Link href="/books">Back to Catalog</Link>
+      </ButtonGroup>
+    </FailureDisplay>
+  );
+}
+```
+
+---
+
+#### Cancellation Page (`src/app/checkout/cancelled/[orderId]/page.tsx`)
+
+**Server Component** (similar structure to failure page):
+
+- Display "Payment Cancelled" message
+- Explanation: "You cancelled the payment. Your order has not been processed."
+- "Complete Payment" button → `/checkout/${orderId}`
+- "Back to Catalog" button → `/books`
+
+---
+
+## Data Models
+
+### Existing Models (No Changes Required)
+
+The design leverages existing Mongoose models WITHOUT modifications:
+
+#### Order Model
+- **Path**: `src/models/Order.ts`
+- **Key Fields**: user, items[], subtotal, discount, total, currency, paymentMethod, transactionId, status
+- **Indexes**: `{user: 1}`, `{transactionId: 1}`
+- **Status Values**: PENDING, PAID, FAILED, CANCELLED, REFUNDED
+
+#### Purchase Model
+- **Path**: `src/models/Purchase.ts`
+- **Key Fields**: user, book, order, price, currency, status, purchasedAt
+- **Indexes**: `{user: 1}`, `{book: 1}`, `{order: 1}`, `{user: 1, book: 1}` (compound)
+- **Status Values**: ACTIVE, REFUNDED, CANCELLED
+
+#### Book Model
+- **Path**: `src/models/Book.ts`
+- **Key Fields**: title, slug, price, discountPrice, status
+- **Status Values**: DRAFT, PUBLISHED, ARCHIVED
+
+## Data Models
+
+### Existing Models (No Changes Required)
+
+The design leverages existing Mongoose models WITHOUT modifications:
+
+#### Order Model
+- **Path**: `src/models/Order.ts`
+- **Key Fields**: user, items[], subtotal, discount, total, currency, paymentMethod, transactionId, status
+- **Indexes**: `{user: 1}`, `{transactionId: 1}`
+- **Status Values**: PENDING, PAID, FAILED, CANCELLED, REFUNDED
+
+#### Purchase Model
+- **Path**: `src/models/Purchase.ts`
+- **Key Fields**: user, book, order, price, currency, status, purchasedAt
+- **Indexes**: `{user: 1}`, `{book: 1}`, `{order: 1}`, `{user: 1, book: 1}` (compound)
+- **Status Values**: ACTIVE, REFUNDED, CANCELLED
+
+#### Book Model
+- **Path**: `src/models/Book.ts`
+- **Key Fields**: title, slug, price, discountPrice, status
+- **Status Values**: DRAFT, PUBLISHED, ARCHIVED
+
+### Required Schema Migrations
+
+The following schema changes are REQUIRED for security and data integrity:
+
+#### 1. Order Model Migration
+
+**Add Field**:
+```typescript
+paymentAttemptId?: string | null;  // Server-generated UUID v4 for current payment attempt
+```
+
+**Purpose**: Tracks the current valid payment attempt for an order. Regenerated on each payment initiation (including retries). Prevents clients from forging or reusing stale transaction IDs.
+
+**Migration Strategy**:
+- Add field to schema with `default: null`
+- Existing orders: null is acceptable (pre-migration orders cannot be paid; users must create new orders)
+- No data migration needed (old pending orders expire naturally after 24 hours)
+- Field added to `src/models/Order.ts` in Phase B
+
+**Schema Definition**:
+```typescript
+paymentAttemptId: {
+  type: String,
+  default: null,
+  trim: true,
+  // Not indexed — queried only by _id + attemptId combination in conditional updates
+},
+```
+
+#### 2. Purchase Model Migration
+
+**Add Unique Compound Index**:
+```typescript
+PurchaseSchema.index({ order: 1, book: 1 }, { unique: true });
+```
+
+**Purpose**: Database-level enforcement that each order can create only one purchase per book. Prevents race conditions in concurrent fulfillment, even if multiple callbacks are processed simultaneously.
+
+**Business Logic Preservation**:
+- Existing compound index `{user: 1, book: 1}` remains (ownership lookups via `checkUserOwnsBook`)
+- New unique index `{order: 1, book: 1}` prevents duplicate fulfillment
+- Different orders for same book are allowed (user repurchases after refund) — different order IDs bypass constraint
+- Duplicate key errors (E11000) handled gracefully as idempotent success
+
+**Current State Verification** (confirmed via codebase grep):
+- ✅ No Purchase records exist yet (no `Purchase.create` calls in codebase)
+- ✅ No existing duplicates to resolve before adding unique constraint
+- ✅ Safe to add unique index without pre-migration duplicate detection
+
+**Migration Strategy**:
+```typescript
+// migrations/add-purchase-unique-index.ts
+import Purchase from '@/models/Purchase';
+import mongoose from 'mongoose';
+import {getMongooseConnection} from '@/lib/db/mongoose';
+
+export async function up() {
+  await getMongooseConnection();
+  
+  // Safety check: verify no existing duplicates (should find zero)
+  console.log('Checking for duplicate {order, book} combinations...');
+  const duplicates = await Purchase.aggregate([
+    {
+      $group: {
+        _id: {order: "$order", book: "$book"},
+        count: {$sum: 1}
+      }
+    },
+    {
+      $match: {count: {$gt: 1}}
+    }
+  ]);
+  
+  if (duplicates.length > 0) {
+    console.error('Found duplicate Purchase records:', duplicates);
+    throw new Error(
+      `Found ${duplicates.length} duplicate {order, book} combinations. ` +
+      `Manual resolution required before adding unique index.`
+    );
+  }
+  
+  console.log('✓ No duplicates found');
+  
+  // Create unique index
+  console.log('Creating unique index {order: 1, book: 1}...');
+  await Purchase.collection.createIndex(
+    {order: 1, book: 1},
+    {unique: true}
+  );
+  
+  console.log('✓ Migration complete: unique index created on Purchase {order, book}');
+}
+
+export async function down() {
+  await getMongooseConnection();
+  
+  console.log('Dropping unique index {order: 1, book: 1}...');
+  await Purchase.collection.dropIndex({order: 1, book: 1});
+  
+  console.log('✓ Rollback complete: unique index removed');
+}
+
+// Run migration
+if (require.main === module) {
+  up()
+    .then(() => {
+      console.log('Migration successful');
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error('Migration failed:', error);
+      process.exit(1);
+    });
+}
+```
+
+**Verify Indexes After Migration**:
+```bash
+# MongoDB shell or Compass
+db.purchases.getIndexes();
+
+# Expected output:
+# [
+#   { v: 2, key: { _id: 1 }, name: "_id_" },
+#   { v: 2, key: { user: 1 }, name: "user_1" },
+#   { v: 2, key: { book: 1 }, name: "book_1" },
+#   { v: 2, key: { order: 1 }, name: "order_1" },
+#   { v: 2, key: { user: 1, book: 1 }, name: "user_1_book_1" },
+#   { v: 2, key: { order: 1, book: 1 }, name: "order_1_book_1", unique: true }
+# ]
+```
+
+**Handling Legitimate Repurchases**:
+- Unique constraint enforces: one purchase per {order, book} combination
+- Different orders can purchase the same book (different order IDs)
+- Scenario: User purchases Book A (Order O1) → Refund O1 → Repurchase Book A (Order O2)
+  - O1 creates Purchase P1: {order: O1, book: A, status: "REFUNDED"}
+  - O2 creates Purchase P2: {order: O2, book: A, status: "ACTIVE"}
+  - No conflict (different order IDs, unique constraint passes)
+- Checkout ownership check prevents ordering already-owned books (ACTIVE purchases only)
+
+### Payment Attempt Lifecycle
+
+**Payment Attempt State Management**:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Order_Created: createOrderFromCart
+    Order_Created --> Attempt_Generated: initiatePayment
+    note right of Attempt_Generated
+        paymentAttemptId: UUID v4
+        transactionId: MOCK_TXN_{attemptId}_{ts}
+    end note
+    
+    Attempt_Generated --> Payment_Success: verifyCallback(SUCCESS)
+    Attempt_Generated --> Payment_Failed: verifyCallback(FAILED)
+    Attempt_Generated --> Payment_Cancelled: verifyCallback(CANCELLED)
+    
+    Payment_Failed --> New_Attempt: initiatePayment (retry)
+    Payment_Cancelled --> New_Attempt: initiatePayment (retry)
+    
+    note right of New_Attempt
+        New paymentAttemptId generated
+        Old attempts become stale/invalid
+    end note
+    
+    Payment_Success --> [*]: Order PAID, Purchases Created
+    
+    Attempt_Generated --> Expired: 24 hours elapsed
+    note right of Expired
+        Cannot complete payment
+        Must create new order
+    end note
+```
+
+**Attempt Validation Rules**:
+1. Each `initiatePayment` call generates fresh `paymentAttemptId` (crypto.randomUUID())
+2. Transaction ID embeds payment attempt ID: `MOCK_TXN_{paymentAttemptId}_{timestamp}`
+3. Verification extracts payment attempt ID from transaction ID
+4. Server validates: `order.paymentAttemptId === extracted_paymentAttemptId`
+5. Stale attempts (old paymentAttemptId) are rejected
+6. Concurrent attempts with different IDs are rejected
+7. Only the most recent attempt ID is valid
+
+### Retry and Recovery Mechanics
+
+**Principle**: Payment attempt IDs persist through failures to enable retry tracking, but new initiations always generate new IDs that invalidate previous attempts.
+
+#### Scenario 1: Verification Succeeds, Fulfillment Fails (Transaction Rollback)
+
+```
+Initial State:
+  Order(status=PENDING, paymentAttemptId=UUID_1, transactionId=MOCK_TXN_UUID_1_...)
+
+User Action:
+  Click "Simulate Success" on mock payment page
+
+Server Processing:
+  1. verifyPaymentCallback(MOCK_TXN_UUID_1_..., 'SUCCESS')
+  2. Extract UUID_1 from transactionId
+  3. Validate: order.paymentAttemptId === UUID_1 ✓
+  4. Start MongoDB transaction
+  5. Atomic update: Order status PENDING → PAID (with conditions)
+  6. Create Purchase for Book A → SUCCESS
+  7. Create Purchase for Book B → ERROR (book deleted from DB)
+  8. Transaction rolls back (abort)
+
+Result State:
+  Order(status=PENDING, paymentAttemptId=UUID_1, transactionId=MOCK_TXN_UUID_1_...)
+  No purchases created (transaction rollback)
+  Error returned to user: "Fulfillment failed. Please retry or contact support."
+
+User Retry:
+  1. Click "Try Again" → returns to /checkout/{orderId}
+  2. Click "Proceed to Payment" → initiatePayment()
+  3. Server generates NEW paymentAttemptId=UUID_2
+  4. Atomic update: Order(paymentAttemptId=UUID_2, transactionId=MOCK_TXN_UUID_2_...)
+  5. Old attempt UUID_1 now STALE (rejected if callback arrives)
+  6. User completes payment with UUID_2 → succeeds
+
+Key Guarantees:
+  - Transaction rollback prevents partial fulfillment (no Book A purchase without Book B)
+  - Order remains PENDING after rollback (retriable state)
+  - New attempt invalidates old attempt (no stale success)
+  - User can retry without creating new order
+```
+
+#### Scenario 2: Verification Fails (Invalid AttemptId, Expired Order)
+
+```
+Initial State:
+  Order(status=PENDING, paymentAttemptId=UUID_1, createdAt=25 hours ago)
+
+User Action:
+  User navigates to mock payment page (late callback)
+  Click "Simulate Success"
+
+Server Processing:
+  1. verifyPaymentCallback(MOCK_TXN_UUID_1_..., 'SUCCESS')
+  2. Extract UUID_1 from transactionId
+  3. Validate: order.paymentAttemptId === UUID_1 ✓
+  4. Atomic expiration check in transaction condition
+  5. UpdateOne condition: {createdAt: {$gt: expirationDate}} FAILS
+  6. matchedCount = 0 (order expired)
+  7. No transaction started
+  8. Fetch order to determine reason
+  9. Calculate age: 25 hours > 24 hours threshold
+
+Result State:
+  Order(status=PENDING, paymentAttemptId=UUID_1, createdAt=25 hours ago)
+  UNCHANGED — no state transition
+  Error returned: "Order expired (created 25h ago). Cannot complete payment."
+
+User Action:
+  - Cannot retry this order (expired orders are terminal for payment purposes)
+  - Must create NEW order with fresh cart selection
+  - Old order preserved for audit trail (not deleted)
+
+Key Guarantees:
+  - Expiration enforced atomically (TOCTOU prevented)
+  - No partial state changes on expiration failure
+  - Clear user messaging (create new order, don't retry)
+```
+
+#### Scenario 3: User Clicks Failure or Cancellation
+
+```
+Initial State:
+  Order(status=PENDING, paymentAttemptId=UUID_1)
+
+User Action:
+  Click "Simulate Failure" on mock payment page
+
+Server Processing:
+  1. verifyPaymentCallback(MOCK_TXN_UUID_1_..., 'FAILED')
+  2. Validate attempt ID ✓
+  3. Simple status update (no transaction needed for non-PAID states)
+  4. UpdateOne: {_id, paymentAttemptId=UUID_1}, {$set: {status: "FAILED"}}
+
+Result State:
+  Order(status=FAILED, paymentAttemptId=UUID_1)
+  No purchases created
+  Redirect to /checkout/failed/{orderId}
+
+User Retry:
+  1. Click "Try Again" button
+  2. Returns to /checkout/{orderId}
+  3. Click "Proceed to Payment" → initiatePayment()
+  4. Atomic update with retriable state condition:
+     Condition: {_id, status: {$in: ["PENDING", "FAILED", "CANCELLED"]}}
+     Action: {$set: {paymentAttemptId: UUID_2, transactionId: MOCK_TXN_UUID_2_...}}
+  5. Order(status=PENDING, paymentAttemptId=UUID_2) — status changes back to PENDING
+  6. User completes payment with UUID_2
+
+Key Guarantees:
+  - FAILED orders are retriable (status condition allows)
+  - New attempt generates new UUID (UUID_1 now stale)
+  - Status changes to PENDING on retry initiation
+  - Old attempt UUID_1 rejected if late callback arrives
+```
+
+#### Scenario 4: Stale Attempt After Retry (Out-of-Order Callbacks)
+
+```
+Initial State:
+  Order(status=PENDING, paymentAttemptId=UUID_1)
+
+User Actions (Rapid Sequence):
+  1. Click "Simulate Success" → network delay, callback pending
+  2. Click "Cancel" → immediately navigate back
+  3. Click "Try Again" → initiatePayment() generates UUID_2
+  4. Now Order(status=PENDING, paymentAttemptId=UUID_2)
+  5. Delayed callback for UUID_1 arrives
+
+Server Processing (UUID_1 Callback):
+  1. verifyPaymentCallback(MOCK_TXN_UUID_1_..., 'SUCCESS')
+  2. Extract UUID_1 from transactionId
+  3. Validate: order.paymentAttemptId (UUID_2) !== UUID_1 ✗
+  4. Reject: "Payment attempt is stale (newer attempt exists)"
+  5. No transaction started, no state change
+
+Result State:
+  Order(status=PENDING, paymentAttemptId=UUID_2)
+  UNCHANGED — stale callback rejected
+  UUID_2 remains valid for future callbacks
+
+Key Guarantees:
+  - Stale attempts cannot complete after newer attempts exist
+  - Order protected from out-of-order callbacks
+  - Only current attemptId can transition order state
+```
+
+#### Scenario 5: Concurrent Success Callbacks (Same AttemptId)
+
+```
+Initial State:
+  Order(status=PENDING, paymentAttemptId=UUID_1)
+
+User Action:
+  Double-click "Simulate Success" (or open multiple tabs, both click)
+
+Server Processing (Two Concurrent Requests):
+  Thread A:
+    1. verifyPaymentCallback(MOCK_TXN_UUID_1_..., 'SUCCESS')
+    2. Validate attemptId ✓
+    3. Start transaction
+    4. Atomic update: {_id, status=PENDING, attemptId=UUID_1} → {status: PAID}
+    5. matchedCount = 1 (Thread A wins)
+    6. Create purchases
+    7. Commit transaction
+    8. Return: {success: true, status: "PAID"}
+  
+  Thread B (arrives milliseconds later):
+    1. verifyPaymentCallback(MOCK_TXN_UUID_1_..., 'SUCCESS')
+    2. Validate attemptId ✓
+    3. Start transaction
+    4. Atomic update: {_id, status=PENDING, attemptId=UUID_1} → {status: PAID}
+    5. matchedCount = 0 (order already PAID, condition failed)
+    6. Abort transaction
+    7. Fetch current order → status=PAID, attemptId=UUID_1
+    8. Idempotent success check: attemptId matches, status is PAID
+    9. Return: {success: true, status: "PAID", message: "Already paid"}
+
+Result State:
+  Order(status=PAID, paymentAttemptId=UUID_1)
+  Exactly ONE set of purchases created (Thread A)
+  Both requests return success (Thread B = idempotent)
+
+Key Guarantees:
+  - Atomic conditional update prevents duplicate transitions
+  - Transaction serialization ensures only one commits
+  - Unique constraint on Purchase prevents duplicates (if both reached creation)
+  - Clear idempotent success response for Thread B
+```
+
+### Transaction Support and Verification
+
+**MongoDB Transaction Requirements**:
+
+Phase 6 **REQUIRES** MongoDB transactions for atomic order fulfillment. Transactions ensure order status updates and purchase creation are all-or-nothing operations.
+
+**Transaction Support Verification Utility**:
+
+```typescript
+// src/lib/db/transaction-support.ts
+import {getMongooseConnection} from './mongoose';
+
+/**
+ * Verifies MongoDB deployment supports multi-document transactions.
+ * Transactions require replica set or sharded cluster.
+ */
+export async function verifyTransactionSupport(): Promise<{
+  supported: boolean;
+  error?: string;
+}> {
+  try {
+    const conn = await getMongooseConnection();
+    const session = await conn.startSession();
+    
+    // Test transaction operations
+    await session.startTransaction();
+    await session.commitTransaction();
+    session.endSession();
+    
+    return {supported: true};
+    
+  } catch (error) {
+    console.error('MongoDB transaction support check failed:', error);
+    return {
+      supported: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
+/**
+ * Run verification during application startup.
+ * Fail fast if transactions are not supported.
+ */
+export async function requireTransactionSupport(): Promise<void> {
+  const result = await verifyTransactionSupport();
+  
+  if (!result.supported) {
+    throw new Error(
+      'MongoDB transactions are not supported in this deployment. ' +
+      'Phase 6 payment fulfillment requires transactions. ' +
+      'Please upgrade to MongoDB Atlas M2+ tier or a replica set deployment. ' +
+      `Error: ${result.error}`
+    );
+  }
+  
+  console.log('✓ MongoDB transaction support verified');
+}
+```
+
+**Startup Verification**:
+
+```typescript
+// src/app/api/checkout/init/route.ts or middleware
+import {requireTransactionSupport} from '@/lib/db/transaction-support';
+
+// Call during application initialization
+await requireTransactionSupport();
+```
+
+**Deployment Requirements**:
+
+| MongoDB Deployment | Transaction Support | Notes |
+|-------------------|---------------------|-------|
+| **MongoDB Atlas M0 (Free Tier)** | ✅ Supported | Replica set enabled by default |
+| **MongoDB Atlas M2+** | ✅ Supported | Replica set enabled |
+| **Local MongoDB (standalone)** | ❌ Not Supported | Must convert to replica set |
+| **Local MongoDB (replica set)** | ✅ Supported | Single-node replica set works |
+| **Sharded Cluster** | ✅ Supported | MongoDB 4.2+ |
+
+**If Transactions Are Unavailable**:
+
+Phase 6 implementation **does not include a fallback**. If deployment doesn't support transactions:
+
+**Option A (Recommended)**: Upgrade MongoDB deployment
+- MongoDB Atlas: Upgrade to M2+ paid tier (guaranteed transaction support)
+- Local/Self-Hosted: Convert to replica set configuration
+
+**Option B**: Defer Phase 6 until deployment supports transactions
+- Continue with other phases (catalog, reader, admin dashboard)
+- Implement payment system after infrastructure upgrade
+
+**Option C (Not Recommended)**: Implement two-phase commit manually
+- Significantly increases complexity
+- Requires compensation logic for partial failures
+- Risk of data inconsistencies
+- Out of scope for Phase 6 MVP
+
+**Why Transactions Are Non-Negotiable**:
+
+Without transactions, race conditions and partial failures create unrecoverable states:
+- ❌ Order marked PAID, purchase creation fails → user charged but no access
+- ❌ Concurrent callbacks create duplicate purchases → database inconsistency
+- ❌ Book deleted during fulfillment → user charged for unavailable book
+- ❌ Refunds become complex (which purchase to refund if duplicates exist?)
+
+**Decision**: Phase 6 requires MongoDB transactions. No fallback implementation will be provided.
+
+### Idempotency Specification
+
+### Idempotency Specification
+
+**Idempotency Guarantees**: All payment operations are idempotent — repeated requests with the same parameters produce the same result without unintended side effects.
+
+#### Idempotency Response Matrix
+
+| Scenario | Initial State | Request | Atomic Condition Result | Response | Final State |
+|----------|---------------|---------|------------------------|----------|-------------|
+| **Repeated Success (Same Attempt)** | Order(PAID, UUID_1) | verifyCallback(UUID_1, SUCCESS) | matchedCount=0 (not PENDING) | {success: true, status: "PAID", message: "Already paid"} | Order(PAID, UUID_1) — UNCHANGED |
+| **Stale Success (Old Attempt)** | Order(PENDING, UUID_2) | verifyCallback(UUID_1, SUCCESS) | attemptId mismatch detected | {success: false, error: "Payment attempt is stale"} | Order(PENDING, UUID_2) — UNCHANGED |
+| **Concurrent Success (Same Attempt)** | Order(PENDING, UUID_1) | Two parallel verifyCallback(UUID_1, SUCCESS) | First: matchedCount=1, Second: matchedCount=0 | First: {success: true, status: "PAID"}<br>Second: {success: true, status: "PAID", message: "Already paid"} | Order(PAID, UUID_1)<br>Exactly one set of purchases |
+| **Duplicate Purchase Creation** | Purchases exist for {order, book} | Create Purchase with same {order, book} | Unique constraint violation (E11000) | {success: true, status: "PAID", message: "Already fulfilled"} | No duplicate purchases — constraint enforced |
+| **Success After Failure** | Order(FAILED, UUID_1) | initiatePayment() | Generates UUID_2, updates order | {success: true, transactionId: MOCK_TXN_UUID_2_...} | Order(PENDING, UUID_2) |
+| **Expired Order Retry** | Order(PENDING, UUID_1, 25h old) | verifyCallback(UUID_1, SUCCESS) | createdAt condition fails | {success: false, error: "Order expired"} | Order(PENDING, UUID_1) — UNCHANGED |
+
+#### Idempotency Implementation Patterns
+
+**Pattern 1: Atomic Conditional Update (Status Transition)**
+
+```typescript
+// Idempotent order status update
+const updateResult = await Order.updateOne(
+  {
+    _id: orderId,
+    status: "PENDING",                    // Must be in expected state
+    paymentAttemptId: validatedAttemptId, // Must match current attempt
+    createdAt: {$gt: expirationDate}      // Must not be expired
+  },
+  {
+    $set: {status: "PAID"}
+  },
+  {session}
+);
+
+if (updateResult.matchedCount === 0) {
+  // Order already processed OR conditions not met
+  // Determine reason and return appropriate idempotent response
+  const currentOrder = await Order.findById(orderId);
+  
+  if (currentOrder.status === "PAID" && currentOrder.paymentAttemptId === validatedAttemptId) {
+    // Idempotent success: order already paid with same attempt
+    return {success: true, orderId, status: "PAID", message: "Already paid"};
+  }
+  
+  if (currentOrder.paymentAttemptId !== validatedAttemptId) {
+    // Stale attempt: newer attempt exists
+    return {success: false, error: "Payment attempt is stale"};
+  }
+  
+  // Other conditions (expired, unexpected state)
+  // ... handle accordingly
+}
+```
+
+**Pattern 2: Unique Constraint (Purchase Creation)**
+
+```typescript
+try {
+  await Purchase.create([{
+    user: order.user,
+    book: item.book,
+    order: order._id,
+    price: item.price,
+    currency: order.currency,
+    status: "ACTIVE",
+    purchasedAt: new Date()
+  }], {session});
+  
+} catch (error) {
+  if (error.code === 11000) {
+    // Duplicate key error on {order, book} unique constraint
+    // This is acceptable — purchase already exists
+    console.log('Purchase already exists (idempotent)');
+    // Continue without throwing (idempotent success)
+    return;
+  }
+  
+  // Other errors are genuine failures
+  throw error;
+}
+```
+
+**Pattern 3: Attempt ID Validation (Stale Request Detection)**
+
+```typescript
+// Extract attempt ID from transaction ID
+const match = transactionId.match(/^MOCK_TXN_([0-9a-f-]{36})_(\d+)$/);
+if (!match) {
+  return {success: false, error: "Invalid transaction ID format"};
+}
+
+const extractedAttemptId = match[1];
+
+// Fetch current order state
+const order = await Order.findById(orderId);
+
+// Validate attempt ID BEFORE any processing
+if (order.paymentAttemptId !== extractedAttemptId) {
+  // This callback is for an old attempt (stale)
+  console.log(`Stale attempt detected: ${extractedAttemptId} (current: ${order.paymentAttemptId})`);
+  return {success: false, error: "Payment attempt is stale (newer attempt exists)"};
+}
+
+// Proceed with verification...
+```
+
+**Idempotency Guarantees Summary**:
+
+| Operation | Idempotency Mechanism | Side Effect Prevention |
+|-----------|----------------------|------------------------|
+| `initiatePayment` | Atomic conditional update | Only PENDING/FAILED/CANCELLED orders updated |
+| `verifyPaymentCallback` | Atomic conditional update + unique constraint | Order transition + purchase creation are atomic |
+| Order Status Transition | MongoDB atomic operations with status conditions | Duplicate transitions prevented |
+| Purchase Creation | Unique index {order, book} | Database rejects duplicates (E11000) |
+| Stale Attempt Handling | attemptId validation before processing | Old callbacks rejected before state changes |
+| Concurrent Requests | Transaction serialization + conditional updates | First wins, others get idempotent response |
+
+### Data Flow Architecture
+
+```mermaid
+graph LR
+    Cart[Cart Items] -->|bookId[]| Validation[Input Validation]
+    Validation -->|Valid IDs| BookFetch[Fetch Books]
+    BookFetch -->|Book Data| PriceCalc[Calculate Prices]
+    PriceCalc -->|Order Data| OrderCreate[Create Order PENDING]
+    OrderCreate -->|Order ID| InitPayment[Initiate Payment]
+    InitPayment -->|Generate attemptId| StoreAttempt[Store paymentAttemptId]
+    StoreAttempt -->|Transaction ID| MockUI[Mock Simulator]
+    MockUI -->|Callback + Status| Verify[Verify Payment]
+    Verify -->|Validate attemptId| CheckExpiry[Check Expiration]
+    CheckExpiry -->|Valid + PAID| Transaction[Start MongoDB Transaction]
+    Transaction -->|Atomic| UpdateStatus[Update Order Status]
+    UpdateStatus -->|Same Txn| CreatePurchases[Create All Purchases]
+    CreatePurchases -->|Commit| Success[Success Page]
+    
+    Verify -->|Invalid attemptId| Reject1[Reject: Stale/Forged]
+    CheckExpiry -->|Expired| Reject2[Reject: Order Expired]
+    Transaction -->|Error| Rollback[Rollback Transaction]
+    Rollback -->|Retry| InitPayment
+```
+
+---
+
+## Correctness Properties
+
+*A property is a characteristic or behavior that should hold true across all valid executions of a system—essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
+
+### Property 1: Server-Side Price Integrity
+
+*For any* cart submission containing book identifiers and client-provided prices, the system SHALL reject client prices and fetch current prices exclusively from the Book database model, ensuring price tampering is impossible.
+
+**Validates: Requirements 2.1, 2.2, 2.3, 2.6**
+
+### Property 2: Ownership Prevents Duplicate Purchase
+
+*For any* user and book combination, if an ACTIVE Purchase record exists, the checkout system SHALL reject order creation with error message identifying the already-owned book title.
+
+**Validates: Requirements 4.1, 4.2, 4.3**
+
+### Property 3: Cryptographically Secure Payment Attempt Validation
+
+*For any* payment callback with transaction ID, the system SHALL extract the embedded payment attempt identifier, verify it matches the order's current paymentAttemptId, and reject callbacks with stale, missing, or forged attempt identifiers, ensuring clients cannot bypass payment initiation.
+
+**Validates: Requirements 7.1, 7.2, 9.2, 9.3, 9.4**
+
+### Property 4: ACID Transaction Guarantees for Fulfillment
+
+*For any* order verification resulting in PAID status, the system SHALL use MongoDB transactions to atomically update order status and create all purchase records within a single transaction, ensuring either complete fulfillment or complete rollback without partial states.
+
+**Validates: Requirements 11.1, 11.2, 11.3, 11.4, 11.9, 13.4, 13.5, 13.6**
+
+### Property 5: Database-Level Idempotency via Unique Constraint
+
+*For any* concurrent purchase creation attempts for the same order and book, the unique compound index `{order: 1, book: 1}` SHALL enforce database-level uniqueness, causing duplicate key errors that are handled as idempotent successes, preventing race conditions.
+
+**Validates: Requirements 12.1, 12.2, 12.3, 12.6, 13.1, 13.2**
+
+### Property 6: Payment Attempt Freshness Enforcement
+
+*For any* payment retry on FAILED or CANCELLED orders, the system SHALL generate a new paymentAttemptId, invalidating all previous payment attempts, ensuring stale transaction IDs from abandoned sessions cannot complete newer payment attempts.
+
+**Validates: Requirements 7.1, 9.2, 10.5, 24.1, 24.3**
+
+### Property 7: Expiration Enforcement at All Boundaries
+
+*For any* order with age exceeding 24 hours, the system SHALL reject payment initiation AND payment verification with explicit expiration errors, preventing both UI-bypassed attempts and late gateway callbacks from completing expired orders.
+
+**Validates: Requirements 24.1, 24.2, 24.3, 24.5, 24.6**
+
+### Property 8: Transaction Rollback on Partial Failure
+
+*For any* order fulfillment where purchase creation fails for any item (book deleted, database error), the MongoDB transaction SHALL abort and roll back all changes, leaving the order in PENDING status for user retry without creating partial purchase records.
+
+**Validates: Requirements 11.10, 13.6, 19.5**
+
+### Property 9: Authorization Boundary Enforcement
+
+*For any* order operation (fetch, payment initiation, verification), the system SHALL verify session.user.id matches order.user before processing, returning 403 Forbidden or redirecting to /forbidden for mismatches.
+
+**Validates: Requirements 6.1, 6.2, 6.3, 6.4**
+
+### Property 10: Published Book Eligibility
+
+*For any* cart item referencing a book, the checkout system SHALL verify book.status === "PUBLISHED" before including in order, rejecting DRAFT and ARCHIVED books with specific error messages.
+
+**Validates: Requirements 3.2, 3.4, 3.5**
+
+### Property 11: Order Creation Atomicity
+
+*For any* valid cart items array, the checkout system SHALL either create a complete order with all items or create no order at all, ensuring partial orders are never persisted on validation failures.
+
+**Validates: Requirements 5.2, 5.7, 5.8, 21.6**
+
+### Property 12: Purchase-Order Linkage
+
+*For any* order that transitions to PAID status, exactly one Purchase record SHALL be created for each order.items entry, with purchase.order referencing the order._id and purchase.book matching item.book.
+
+**Validates: Requirements 11.1, 11.2, 11.3, 11.4, 11.9**
+
+---
+
+## Error Handling
+
+### Error Classification
+
+| Error Type | Detection Point | HTTP Status | User Message | Recovery Action |
+|------------|----------------|-------------|--------------|-----------------|
+| **Validation Error** | Zod parse | 400 | Specific field error from Zod | Correct input, retry |
+| **Authentication Error** | requireUser() | 302 | Redirect to /login | Sign in |
+| **Authorization Error** | Order ownership check | 403 | "Access denied" | Navigate to own orders |
+| **Book Not Found** | Book.findById | 404 | "Book not found: {id}" | Remove from cart |
+| **Book Not Published** | Book status check | 400 | "Book not available: {title}" | Remove from cart |
+| **Already Owned** | Purchase existence check | 400 | "You already own: {title}" | Remove from cart |
+| **Order Not Found** | Order.findById | 404 | "Order not found" | Return to catalog |
+| **Order Expired** | Age calculation | 400 | "Order expired (created {hours}h ago). Please create a new order." | Create new order |
+| **Order Invalid State** | Status check | 400 | "Order cannot be paid (status: {status})" | View order status page |
+| **Stale Payment Attempt** | paymentAttemptId mismatch | 400 | "Invalid payment attempt (stale or forged)" | Reinitiate payment |
+| **Transaction Mismatch** | transactionId comparison | 400 | "Transaction verification failed" | Contact support |
+| **Payment Verification Failed** | Provider verifyPayment | 400 | "Payment could not be verified" | Contact support |
+| **Duplicate Key Error** | Purchase unique constraint | (handled) | Idempotent success (logged) | None (success) |
+| **Transaction Rollback** | MongoDB session abort | 500 | "Payment verified but fulfillment failed. Please retry or contact support." | Retry payment |
+| **Database Error** | Mongoose operation | 500 | "An unexpected error occurred" | Retry operation |
+
+### Error Handling Patterns
+
+**Try-Catch Wrapping**:
+```typescript
+try {
+  // Operation logic
+} catch (error) {
+  console.error("Operation failed:", error);
+  
+  if (error instanceof mongoose.Error.CastError) {
+    return {success: false, error: "Invalid ID format"};
+  }
+  
+  if (error instanceof mongoose.Error.ValidationError) {
+    return {success: false, error: "Validation failed"};
+  }
+  
+  // Handle duplicate key errors (idempotent)
+  if (error.code === 11000) {
+    console.warn("Duplicate key detected (idempotent operation)");
+    return {success: true, message: "Operation already completed"};
+  }
+  
+  // Generic fallback
+  return {success: false, error: "An unexpected error occurred. Please try again."};
+}
+```
+
+**Transaction Error Handling**:
+```typescript
+const session = await mongoose.startSession();
+session.startTransaction();
+
+try {
+  // Atomic operations with session
+  await Order.updateOne({...}, {session});
+  await Purchase.create([...], {session});
+  
+  await session.commitTransaction();
+  return {success: true, ...};
+  
+} catch (error) {
+  await session.abortTransaction();
+  console.error("Transaction failed:", error);
+  
+  // Handle duplicate key errors gracefully
+  if (error.code === 11000) {
+    return {success: true, message: "Purchases already created"};
+  }
+  
+  // Other errors: user can retry
+  return {success: false, error: "Fulfillment failed. Please retry or contact support."};
+  
+} finally {
+  session.endSession();
+}
+```
+
+**Logging Strategy**:
+- **Info Level**: Successful operations (order created, payment initiated, purchase created)
+- **Warn Level**: Idempotent operations detected (duplicate key, stale attempt, already processed)
+- **Error Level**: Operation failures (book not found, verification failed, transaction rollback)
+- **Never Log**: Passwords, full payment tokens, sensitive user data beyond IDs
+
+**Graceful Degradation**:
+- If book deleted during fulfillment: Transaction rolls back, order stays PENDING, user retries
+- If duplicate purchase attempted: Database constraint prevents, treat as idempotent success
+- If order already processed: Return current status without error (idempotent)
+- If payment attempt stale: Reject with clear message, user reinitiates payment
+- If order expired: Reject with clear message, user creates new order
+
+---
+
+## Testing Strategy
+
+### Testing Approach
+
+This feature requires **deterministic testing** for security-critical payment flows and **integration testing** for database transaction behavior.
+
+**Testing Strategy**:
+
+- **Unit Tests** (example-based, mocked dependencies): Core logic validation
+- **Integration Tests** (example-based, test database): Transaction atomicity, concurrent operations
+- **Security Tests** (deterministic): Payment attempt validation, forgery prevention
+- **Manual Testing**: UI interactions and payment simulation scenarios
+
+### Unit Test Coverage (Example-Based)
+
+**Test File**: `src/lib/payments/__tests__/MockPaymentProvider.test.ts`
+
+1. **Payment attempt ID generation**: Verify UUID v4 format (36 characters, dash positions)
+2. **Transaction ID generation**: Verify format `MOCK_TXN_{uuid}_{timestamp}`
+3. **Transaction ID parsing**: Verify UUID extraction from valid/invalid formats
+4. **Status mapping**: Verify SUCCESS→PAID, FAILED→FAILED, CANCELLED→CANCELLED
+5. **Verification with valid transaction ID**: Returns verified=true, correct status, paymentAttemptId
+6. **Verification with invalid transaction ID**: Returns verified=false, error message
+7. **Verification with malformed UUID**: Returns verified=false, format error
+
+**Test File**: `src/actions/__tests__/checkout.test.ts`
+
+1. **Price calculation**: Given items with prices and quantities, verify correct subtotal/total
+2. **Ownership detection**: Mock Purchase.findOne, verify rejection when ACTIVE purchase exists
+3. **Book validation**: Mock Book.findById with DRAFT/ARCHIVED status, verify rejection
+4. **Order expiration calculation**: Given old timestamp, verify isExpired=true (>24 hours)
+5. **Payment attempt ID validation**: Given mismatched attemptId, verify rejection
+6. **Transaction ID validation**: Given mismatched transactionId, verify rejection
+
+### Integration Test Coverage (Example-Based)
+
+**Test File**: `src/actions/__tests__/checkout.integration.test.ts`
+
+**Setup**: Use MongoDB Memory Server for isolated test database
+
+1. **Successful checkout flow**:
+   - Seed: User, published books
+   - Action: createOrderFromCart with valid items
+   - Assert: Order created with status PENDING, correct prices, paymentAttemptId null
+   
+2. **Successful payment flow with transaction**:
+   - Seed: User, pending order
+   - Action: initiatePayment (generates attemptId) → verifyPaymentCallback(SUCCESS)
+   - Assert: Order status PAID, all purchases created, transaction committed
+   
+3. **Transaction rollback on book deletion**:
+   - Seed: User, pending order, delete one book before fulfillment
+   - Action: verifyPaymentCallback(SUCCESS)
+   - Assert: Transaction aborted, order remains PENDING, no purchases created
+   
+4. **Concurrent fulfillment with unique constraint**:
+   - Seed: User, pending order
+   - Action: Two parallel verifyPaymentCallback calls
+   - Assert: One succeeds, one gets duplicate key error (handled as success), exactly one set of purchases
+   
+5. **Stale payment attempt rejection**:
+   - Seed: User, pending order with attemptId_1
+   - Action: initiatePayment (generates attemptId_2) → verifyPaymentCallback with attemptId_1
+   - Assert: Verification rejected "stale attempt", order remains PENDING
+   
+6. **Expired order rejection**:
+   - Seed: User, order created 25 hours ago
+   - Action: initiatePayment AND verifyPaymentCallback
+   - Assert: Both rejected with "Order expired", no state changes
+   
+7. **Failed order retry with new attempt**:
+   - Seed: User, FAILED order
+   - Action: initiatePayment (generates new attemptId) → verifyPaymentCallback(SUCCESS)
+   - Assert: Order transitions FAILED→PAID, purchases created
+   
+8. **Forged transaction ID rejection**:
+   - Seed: User, pending order
+   - Action: verifyPaymentCallback with fabricated transactionId (wrong UUID)
+   - Assert: Verification rejected "format invalid", order unchanged
+   
+9. **Duplicate purchase prevention (refund scenario)**:
+   - Seed: User, book, REFUNDED purchase
+   - Action: createOrderFromCart with same book → complete payment
+   - Assert: New order created successfully, new ACTIVE purchase created (different order ID)
+
+### Security Test Coverage (Deterministic)
+
+**Test File**: `src/actions/__tests__/checkout.security.test.ts`
+
+1. **Forged payment attempt ID**:
+   - Setup: Order with paymentAttemptId_A, client sends callback with attemptId_B
+   - Assert: Rejected "stale or forged attempt"
+   
+2. **Predictable transaction ID**:
+   - Setup: Client constructs MOCK_TXN_{orderId}_{timestamp}
+   - Assert: Rejected (orderId extraction fails, UUID expected)
+   
+3. **Reused transaction ID**:
+   - Setup: Complete payment with txnId_1, replay callback with same txnId_1
+   - Assert: Idempotent (order already PAID, no duplicate purchases)
+   
+4. **Out-of-order attempts**:
+   - Setup: Initiate payment twice (attemptId_1, attemptId_2), complete attemptId_1 after attemptId_2 active
+   - Assert: attemptId_1 rejected (stale), only attemptId_2 valid
+   
+5. **Expired order with valid attempt**:
+   - Setup: Order created 25h ago with valid paymentAttemptId
+   - Assert: Verification rejected at expiration check (before attempt validation)
+
+### Manual Testing Scenarios
+
+| Scenario | Steps | Expected Result |
+|----------|-------|-----------------|
+| **Happy Path** | 1. Add books to cart<br>2. Create order<br>3. Initiate payment (new attemptId)<br>4. Click "Simulate Success" | Order PAID, purchases created atomically, redirected to success page |
+| **Payment Failure** | 1. Create order<br>2. Initiate payment<br>3. Click "Simulate Failure" | Order FAILED, no purchases, can retry with new attemptId |
+| **Payment Cancellation** | 1. Create order<br>2. Initiate payment<br>3. Click "Simulate Cancellation" | Order CANCELLED, no purchases, can retry |
+| **Duplicate Callback** | 1. Complete successful payment<br>2. Revisit mock payment URL<br>3. Click "Simulate Success" again | Idempotent: no duplicate purchases (unique constraint), redirected to success |
+| **Concurrent Callbacks** | 1. Complete payment<br>2. Open two browser tabs, both click "Simulate Success" simultaneously | One succeeds, one hits unique constraint, both show success page |
+| **Expired Order Initiation** | 1. Create order<br>2. Manually set createdAt to 25 hours ago<br>3. Attempt payment initiation | Rejected "Order expired", no attemptId generated |
+| **Expired Order Verification** | 1. Create order, initiate payment<br>2. Manually set createdAt to 25 hours ago<br>3. Complete payment | Rejected "Order expired", order remains PENDING |
+| **Failed Order Retry** | 1. Complete failed payment<br>2. Retry payment | New attemptId generated, old attemptId invalid, can complete successfully |
+| **Unauthorized Access** | 1. User A creates order<br>2. User B attempts to access order URL | Redirected to /forbidden |
+| **Already Owned Book** | 1. Complete purchase of book X<br>2. Add book X to cart again<br>3. Attempt checkout | Rejected "You already own: {title}" |
+| **Transaction Rollback** | 1. Create order<br>2. Initiate payment<br>3. Delete one book from DB<br>4. Complete payment | Transaction rolls back, order stays PENDING, user retries |
+
+### Test Data Seeds
+
+**Minimal Test Database**:
+- **Users**: 2 users (testUser1, testUser2) with role="USER", status="ACTIVE"
+- **Categories**: 1 category ("Fiction", status="ACTIVE")
+- **Authors**: 1 author (linked to testUser1 with upgraded role)
+- **Books**: 3 books:
+  - Book A: Published, price=500, discountPrice=400
+  - Book B: Published, price=300, no discount
+  - Book C: Draft (for validation testing)
+- **Orders**: 
+  - 1 expired order (createdAt 25 hours ago, status="PENDING")
+  - 1 FAILED order (for retry testing)
+- **Purchases**: 1 ACTIVE purchase (testUser1 owns Book A), 1 REFUNDED purchase (testUser1 previously owned Book B)
+
+### Testing Tools
+
+- **Test Runner**: Vitest (Next.js 16 compatible)
+- **DB Mocking**: MongoDB Memory Server (isolated test database)
+- **HTTP Mocking**: MSW (Mock Service Worker) for external API simulation (future SSLCOMMERZ)
+- **Type Safety**: Vitest with TypeScript support
+- **Coverage**: `vitest --coverage` (target: >80% for business logic)
+
+### Verification Commands
+
+```bash
+# Type checking
+npx tsc --noEmit
+
+# Linting
+npm run lint
+
+# Build verification
+npm run build
+
+# Unit tests (when implemented)
+npx vitest run src/lib/payments
+npx vitest run src/actions/__tests__/checkout.test.ts
+
+# Integration tests (when implemented)
+npx vitest run src/actions/__tests__/checkout.integration.test.ts
+
+# Security tests (when implemented)
+npx vitest run src/actions/__tests__/checkout.security.test.ts
+```
+
+---
+
+## Implementation Phases
+
+### Phase A: Type Definitions and Validation Schemas
+
+**Estimated Effort**: 3 hours
+
+**Files to Create**:
+
+1. `src/lib/payments/types.ts`
+   - Define PaymentProvider interface with paymentAttemptId parameter
+   - Define PaymentInitResult, PaymentVerifyResult (with paymentAttemptId field), PaymentCallbackResult types
+   - Export OrderStatus type alias
+
+2. `src/validators/checkout.ts`
+   - Define CreateOrderInput Zod schema
+   - Export inferred TypeScript type
+
+3. `src/types/checkout.ts`
+   - Define OrderResponse, OrderDetailsResponse, PaymentCallbackResponse types
+   - Define OrderDisplay interface for UI components
+
+**Dependencies**: None
+
+**Acceptance Criteria**:
+- `npx tsc --noEmit` passes without errors
+- All types exported from proper modules
+- Zod schemas include proper error messages
+- PaymentVerifyResult includes paymentAttemptId and orderId fields
+
+---
+
+### Phase B: Schema Migrations
+
+**Estimated Effort**: 2 hours
+
+**Files to Modify**:
+
+1. `src/models/Order.ts`
+   - Add `paymentAttemptId?: string | null;` field with default null
+   - Update TypeScript interfaces (IOrder, IOrderDocument)
+   - Add JSDoc comment explaining payment attempt tracking
+
+2. `src/models/Purchase.ts`
+   - Add unique compound index: `PurchaseSchema.index({ order: 1, book: 1 }, { unique: true });`
+   - Add comment explaining database-level idempotency enforcement
+
+**Database Migration Script** (`scripts/migrate-payment-system.ts`):
+```typescript
+// Run manually after deploying schema changes
+// Verifies no duplicate {order, book} combinations exist before creating unique index
+async function migratePaymentSystem() {
+  await mongoose.connect(process.env.MONGODB_URI!);
+  
+  // Check for duplicates
+  const duplicates = await Purchase.aggregate([
+    {$group: {_id: {order: "$order", book: "$book"}, count: {$sum: 1}}},
+    {$match: {count: {$gt: 1}}}
+  ]);
+  
+  if (duplicates.length > 0) {
+    console.error("Duplicate purchases found:", duplicates);
+    throw new Error("Resolve duplicate purchases before creating unique index");
+  }
+  
+  // Create unique index
+  await Purchase.collection.createIndex(
+    {order: 1, book: 1},
+    {unique: true}
+  );
+  
+  console.log("Migration complete: unique index created on Purchase {order, book}");
+}
+```
+
+**Dependencies**: None
+
+**Acceptance Criteria**:
+- `npx tsc --noEmit` passes without errors
+- Schema changes preserve backward compatibility (null defaults)
+- Migration script runs successfully on test database
+- Unique index created without errors
+
+### Phase C: Payment Provider Implementation
+
+**Estimated Effort**: 4 hours
+
+**Files to Create**:
+
+1. `src/lib/payments/MockPaymentProvider.ts`
+   - Implement MockPaymentProvider class with crypto.randomUUID() for attemptId
+   - Include JSDoc comments warning about development-only use
+   - Transaction ID generation with UUID format
+   - Payment attempt ID extraction and validation
+   - Status mapping logic
+
+2. `src/lib/payments/factory.ts`
+   - Implement getPaymentProvider() factory function
+   - Environment variable check (PAYMENT_PROVIDER)
+   - Default to MOCK provider
+
+**Dependencies**: Phase A and B complete
+
+**Acceptance Criteria**:
+- MockPaymentProvider implements PaymentProvider interface
+- Transaction ID format matches specification: `MOCK_TXN_{uuid}_{timestamp}`
+- Payment attempt ID is UUID v4 (36 characters)
+- Factory returns correct provider instance
+- JSDoc comments warn against production use
+- Verification extracts and validates payment attempt ID
+
+---
+
+### Phase D: Server Actions Implementation
+
+**Estimated Effort**: 12 hours
+
+**Files to Create**:
+
+1. `src/actions/checkout.ts`
+   - Implement createOrderFromCart
+   - Implement initiatePayment with crypto.randomUUID() generation
+   - Implement verifyPaymentCallback with MongoDB transactions
+   - Implement getOrderDetails
+   - Implement checkUserOwnsBook
+   - Include comprehensive error handling
+   - Include transaction rollback logic
+   - Include payment attempt validation
+   - Include expiration enforcement (both stages)
+   - Include logging statements
+
+**Dependencies**: Phase A, B, and C complete
+
+**Acceptance Criteria**:
+- All server actions marked with "use server"
+- Input validation with Zod schemas
+- Authentication via requireUser()
+- Authorization checks on order access
+- Payment attempt ID generation (UUID v4) in initiatePayment
+- Payment attempt ID validation in verifyPaymentCallback
+- Expiration checks (24 hours) in both initiation and verification
+- MongoDB transactions for atomic fulfillment
+- Transaction rollback on any error
+- Duplicate key error handling (code 11000)
+- Atomic order status updates with conditional filters
+- Stale attempt rejection
+- Comprehensive error handling
+- Logging without sensitive data
+
+**Testing Checkpoint**: Manual testing with database seeds, including:
+- Successful payment with transaction commit
+- Failed payment with transaction rollback
+- Concurrent callbacks with unique constraint
+- Stale attempt rejection
+- Expired order rejection (both stages)
+
+---
+
+### Phase E: UI Components Implementation
+
+**Estimated Effort**: 10 hours
+
+**Files to Create**:
+
+1. `src/app/checkout/[orderId]/page.tsx`
+   - Server Component for checkout page
+   - Order details display
+   - Payment initiation form
+   - Expiration indicator
+
+2. `src/components/checkout/CheckoutForm.tsx`
+   - Client Component with payment button
+   - Loading states
+   - Error display
+
+3. `src/app/checkout/mock-payment/[transactionId]/page.tsx`
+   - Server Component validating transaction
+   - Extract orderId from transactionId (via server action)
+   - Order details display
+
+4. `src/components/checkout/MockPaymentSimulator.tsx`
+   - Client Component with three action buttons
+   - Warning banner about development mode
+   - Loading states
+   - Pass orderId to verifyPaymentCallback
+
+5. `src/app/checkout/success/[orderId]/page.tsx`
+   - Server Component for success page
+   - Order summary display
+   - Navigation buttons
+
+6. `src/app/checkout/failed/[orderId]/page.tsx`
+   - Server Component for failure page
+   - Error messaging
+   - Retry/navigation buttons
+
+7. `src/app/checkout/cancelled/[orderId]/page.tsx`
+   - Server Component for cancellation page
+   - Explanation text
+   - Navigation buttons
+
+8. `src/components/checkout/OrderSummary.tsx`
+   - Reusable order display component
+   - Items table
+   - Price breakdown
+
+**Dependencies**: Phase D complete
+
+**Acceptance Criteria**:
+- All pages render without errors
+- Server Components use async/await for data fetching
+- Client Components use React hooks
+- Loading states with Suspense boundaries
+- Error boundaries for graceful failures
+- Accessible UI (keyboard navigation, ARIA labels)
+- Responsive design (mobile-first)
+- Mock payment page passes orderId to callback (not extracted client-side)
+
+**Testing Checkpoint**: End-to-end manual testing of all flows
+
+---
+
+### Phase F: Integration Testing and Documentation
+
+**Estimated Effort**: 8 hours
+
+**Files to Create**:
+
+1. `src/actions/__tests__/checkout.test.ts`
+   - Unit tests for business logic
+   - Mocked dependencies
+   - Payment attempt ID validation tests
+   - Expiration calculation tests
+
+2. `src/lib/payments/__tests__/MockPaymentProvider.test.ts`
+   - Unit tests for provider logic
+   - UUID format validation
+   - Transaction ID parsing tests
+
+3. `src/actions/__tests__/checkout.integration.test.ts`
+   - MongoDB Memory Server setup
+   - Transaction commit/rollback tests
+   - Concurrent fulfillment tests
+   - Stale attempt rejection tests
+   - Expiration enforcement tests
+
+4. `src/actions/__tests__/checkout.security.test.ts`
+   - Forged attempt ID tests
+   - Predictable transaction ID tests
+   - Reused transaction ID tests
+   - Out-of-order attempt tests
+
+5. `docs/payment-testing-guide.md`
+   - Manual testing checklist
+   - Test data seeds
+   - Expected results documentation
+   - Security test scenarios
+
+**Dependencies**: Phase E complete
+
+**Acceptance Criteria**:
+- Unit tests pass with `npx vitest run`
+- Integration tests pass with MongoDB Memory Server
+- Security tests validate all forgery scenarios
+- Test coverage >80% for business logic
+- Manual testing guide comprehensive
+- All test scenarios documented
+- Transaction behavior verified (commit/rollback)
+
+---
+
+## Security Considerations
+
+### Threat Model
+
+| Threat | Attack Vector | Mitigation | Residual Risk |
+|--------|---------------|------------|---------------|
+| **Price Tampering** | Malicious client submits falsified prices | Server fetches all prices from DB, ignores client values | None (fully mitigated) |
+| **Payment Status Falsification** | Client claims payment succeeded without actual payment | Server verifies all payment statuses through PaymentProvider with cryptographic attempt validation | None (fully mitigated) |
+| **Forged Payment Callbacks** | Attacker constructs fake transaction IDs | Server-generated UUID v4 payment attempt IDs (128-bit), verified against order.paymentAttemptId | None (fully mitigated) |
+| **Stale Payment Attempts** | Attacker reuses old transaction IDs from previous sessions | Each payment initiation generates new attemptId, stale attempts rejected | None (fully mitigated) |
+| **Predictable Transaction IDs** | Attacker guesses transaction ID format | Transaction IDs embed cryptographically random UUIDs, not predictable orderIds | None (fully mitigated) |
+| **Unauthorized Order Access** | User attempts to access other user's orders | Authorization check: order.user === session.user.id on all operations | None (fully mitigated) |
+| **Session Hijacking** | Attacker steals session token | HTTPS-only cookies, httpOnly flag, short expiration (Auth.js defaults) | Low (requires HTTPS enforcement) |
+| **Replay Attacks** | Attacker replays successful payment callback | Idempotent checks via unique constraint, atomic updates prevent double processing | None (fully mitigated) |
+| **Race Conditions in Fulfillment** | Concurrent payment verifications create duplicate purchases | Database unique constraint {order: 1, book: 1}, MongoDB transactions ensure atomicity | None (fully mitigated) |
+| **Partial Fulfillment States** | Database error during purchase creation leaves incomplete state | MongoDB transactions roll back all changes on any error, order remains PENDING | None (fully mitigated) |
+| **CSRF Attacks** | Malicious site forges payment requests | Next.js built-in CSRF protection for Server Actions | None (framework-level protection) |
+| **Order Manipulation** | Attacker modifies pending order before payment | Order contents immutable after creation, verification uses DB values | None (fully mitigated) |
+| **Expired Order Exploitation** | Attacker completes payment for expired orders | Expiration checks enforced in both initiation AND verification (server-side) | None (fully mitigated) |
+| **Book Ownership Bypass** | User attempts to access purchased book without ownership | checkUserOwnsBook verification at reader entry point | None (requires reader implementation) |
+
+### Security Review Checklist
+
+Before deployment, verify:
+
+- [ ] All prices fetched server-side from Book model
+- [ ] All payment statuses verified through PaymentProvider with attempt ID validation
+- [ ] Payment attempt IDs generated with crypto.randomUUID() (UUID v4)
+- [ ] Payment attempt IDs validated in verifyPaymentCallback
+- [ ] Stale payment attempts rejected
+- [ ] All order operations protected by authentication (requireUser)
+- [ ] All order operations protected by authorization (user ID match)
+- [ ] All inputs validated with Zod schemas
+- [ ] Expiration checks enforced in BOTH initiation and verification
+- [ ] MongoDB transactions used for atomic fulfillment
+- [ ] Transaction rollback on any error
+- [ ] Unique constraint {order: 1, book: 1} on Purchase collection
+- [ ] Duplicate key errors handled gracefully (code 11000)
+- [ ] No sensitive data in client-side props or logs
+- [ ] No passwordHash fields in user objects sent to client
+- [ ] Order status transitions use conditional atomic updates
+- [ ] CSRF protection active (Next.js default)
+- [ ] HTTPS enforced in production (via hosting config)
+
+---
+
+## Performance Considerations
+
+### Database Query Optimization
+
+**Indexed Queries**:
+- Order lookup by ID: uses primary index `_id`
+- Order lookup by user: uses index `{user: 1}`
+- Order lookup by transaction ID: uses index `{transactionId: 1}`
+- Purchase ownership check: uses compound index `{user: 1, book: 1}`
+- Purchase duplicate detection: uses compound index `{user: 1, book: 1}`
+
+**Query Patterns**:
+```typescript
+// Efficient: Uses {user: 1, book: 1} compound index
+await Purchase.findOne({user: userId, book: bookId, status: "ACTIVE"});
+
+// Efficient: Uses {user: 1} index
+await Order.find({user: userId}).sort({createdAt: -1}).limit(10);
+
+// Efficient: Uses {transactionId: 1} index
+await Order.findOne({transactionId: txnId});
+```
+
+**Avoiding N+1 Queries**:
+```typescript
+// BAD: N+1 query for book details
+for (const item of cartItems) {
+  const book = await Book.findById(item.bookId); // N queries
+}
+
+// GOOD: Single query with $in operator
+const bookIds = cartItems.map(item => item.bookId);
+const books = await Book.find({_id: {$in: bookIds}}); // 1 query
+const bookMap = new Map(books.map(b => [b._id.toString(), b]));
+```
+
+### Caching Strategy
+
+**No Caching in Phase 6**: Maintain data consistency priority over performance optimization.
+
+**Future Caching Opportunities** (Phase 12+):
+- Book prices: Cache with 5-minute TTL (Redis)
+- User ownership: Cache ACTIVE purchases with 1-minute TTL
+- Order details: Cache completed orders (PAID/FAILED/CANCELLED) indefinitely
+
+### Concurrent Request Handling
+
+**Atomic Operations**: MongoDB's atomic updateOne ensures correctness under concurrent load:
+
+```typescript
+// Handles concurrency correctly
+const result = await Order.updateOne(
+  {_id: orderId, status: "PENDING"}, // Conditional filter
+  {$set: {status: "PAID"}}
+);
+
+// Check if update succeeded
+if (result.matchedCount === 0) {
+  // Order already processed by concurrent request
+  // Treat as idempotent success
+}
+```
+
+**Expected Performance**:
+- Order creation: <200ms (including book fetches and ownership checks)
+- Payment initiation: <50ms (simple transaction ID generation)
+- Payment verification: <300ms (including atomic update and purchase creation)
+- Order details fetch: <100ms (single indexed query)
+
+---
+
+## Migration and Deployment
+
+### Environment Variables
+
+Add to `.env.local` (development) and `.env.production` (production):
+
+```env
+# Payment Provider Selection
+PAYMENT_PROVIDER=MOCK  # Options: MOCK | SSLCOMMERZ
+
+# Order Expiration (hours)
+ORDER_EXPIRATION_HOURS=24
+```
+
+### Database Migration
+
+**Schema Changes Required**:
+
+1. **Order Model** (`src/models/Order.ts`):
+   - Add `paymentAttemptId?: string | null` field
+   - Default: `null`
+   - Purpose: Track current valid payment attempt (regenerated on retry)
+
+2. **Purchase Model** (`src/models/Purchase.ts`):
+   - Add unique compound index: `{order: 1, book: 1}`
+   - Purpose: Prevent duplicate purchases for same order/book at database level
+
+**Migration Script** (`scripts/migrate-payment-system.ts`):
+```typescript
+// Run after deploying schema changes
+async function migratePaymentSystem() {
+  await mongoose.connect(process.env.MONGODB_URI!);
+  
+  // Step 1: Check for existing duplicate {order, book} combinations
+  console.log("Checking for duplicate purchases...");
+  const duplicates = await Purchase.aggregate([
+    {$group: {_id: {order: "$order", book: "$book"}, count: {$sum: 1}}},
+    {$match: {count: {$gt: 1}}}
+  ]);
+  
+  if (duplicates.length > 0) {
+    console.error("Duplicate purchases found:", duplicates);
+    throw new Error("Resolve duplicate purchases manually before creating unique index");
+  }
+  
+  // Step 2: Create unique index on Purchase collection
+  console.log("Creating unique index on Purchase {order, book}...");
+  await Purchase.collection.createIndex(
+    {order: 1, book: 1},
+    {unique: true}
+  );
+  
+  console.log("✓ Migration complete");
+  console.log("  - Unique index created: Purchase {order: 1, book: 1}");
+  console.log("  - Order.paymentAttemptId field added (default null)");
+  
+  await mongoose.disconnect();
+}
+```
+
+**Verify Indexes**:
+```javascript
+// Run in MongoDB shell or via migration script
+db.orders.getIndexes();
+db.purchases.getIndexes();
+
+// Expected indexes:
+// orders: {user: 1}, {transactionId: 1}
+// purchases: {user: 1}, {book: 1}, {order: 1}, {user: 1, book: 1}, {order: 1, book: 1} [unique]
+```
+
+### Deployment Checklist
+
+1. **Pre-Deployment**:
+   - [ ] Run `npx tsc --noEmit` (zero type errors)
+   - [ ] Run `npm run lint` (zero linting errors)
+   - [ ] Run `npm run build` (successful build)
+   - [ ] Run unit tests (all passing)
+   - [ ] Run integration tests (all passing)
+   - [ ] Run security tests (all passing)
+   - [ ] Manual smoke test (complete payment flow)
+   - [ ] Verify schema migrations ready (Order.paymentAttemptId, Purchase unique index)
+
+2. **Deployment**:
+   - [ ] Deploy schema changes to staging database
+   - [ ] Run migration script on staging (`node scripts/migrate-payment-system.ts`)
+   - [ ] Verify unique index created without errors
+   - [ ] Set `PAYMENT_PROVIDER=MOCK` in environment
+   - [ ] Deploy Next.js application
+   - [ ] Verify MongoDB connection
+   - [ ] Verify Auth.js session handling
+
+3. **Post-Deployment Verification**:
+   - [ ] Test successful payment flow (end-to-end)
+   - [ ] Test failed payment flow
+   - [ ] Test cancelled payment flow
+   - [ ] Test payment retry after failure
+   - [ ] Test concurrent callbacks (unique constraint enforcement)
+   - [ ] Test stale payment attempt rejection
+   - [ ] Test expired order rejection (initiation)
+   - [ ] Test expired order rejection (verification)
+   - [ ] Test transaction rollback on book deletion
+   - [ ] Test forged transaction ID rejection
+   - [ ] Test duplicate purchase prevention
+   - [ ] Test unauthorized access (403 responses)
+   - [ ] Verify logging output (no sensitive data, proper error levels)
+   - [ ] Check database: Orders and Purchases created correctly
+   - [ ] Verify unique index working (no duplicate {order, book} records)
+
+### Rollback Plan
+
+If critical issues discovered post-deployment:
+
+1. **Immediate**: Disable checkout UI (feature flag or route guard)
+2. **Database**: No rollback needed (Order/Purchase collections non-destructive)
+3. **Code**: Revert deployment to previous version
+4. **Cleanup**: Mark incomplete orders as CANCELLED (admin action)
+
+### Future Migration to SSLCOMMERZ
+
+**Phase 12 Migration Path**:
+
+1. **Implement SSLCommerzPaymentProvider**:
+   - Register SSLCOMMERZ merchant account
+   - Obtain API credentials (Store ID, Store Password)
+   - Implement provider class following PaymentProvider interface
+   - Add IPN (Instant Payment Notification) webhook handler
+
+2. **Update Factory**:
+   ```typescript
+   export function getPaymentProvider(): PaymentProvider {
+     const provider = process.env.PAYMENT_PROVIDER || 'MOCK';
+     
+     if (provider === 'MOCK') {
+       return new MockPaymentProvider();
+     }
+     
+     if (provider === 'SSLCOMMERZ') {
+       return new SSLCommerzPaymentProvider({
+         storeId: process.env.SSLCOMMERZ_STORE_ID!,
+         storePassword: process.env.SSLCOMMERZ_STORE_PASSWORD!,
+         isSandbox: process.env.SSLCOMMERZ_IS_SANDBOX === 'true'
+       });
+     }
+     
+     throw new Error(`Unsupported payment provider: ${provider}`);
+   }
+   ```
+
+3. **Update Order Model**:
+   - Change default `paymentMethod` based on environment
+   - Add SSLCOMMERZ-specific fields (bank_tran_id, card_type, etc.) if needed
+
+4. **Add IPN Handler**:
+   - Route: `src/app/api/payments/ipn/route.ts`
+   - Verify IPN authenticity via SSLCOMMERZ validation API
+   - Call `verifyPaymentCallback` with validated data
+
+5. **Testing**:
+   - Test in SSLCOMMERZ sandbox environment
+   - Verify all payment methods (bKash, Nagad, Rocket, cards)
+   - Load testing for production traffic
+
+6. **Gradual Rollout**:
+   - Enable SSLCOMMERZ for 10% of users
+   - Monitor error rates and success rates
+   - Gradually increase to 100%
+   - Keep MockPaymentProvider available in development
+
+---
+
+## Open Questions and Decisions
+
+### Decisions Made
+
+| Decision | Rationale | Alternative Considered |
+|----------|-----------|------------------------|
+| **No MongoDB Transactions** | Atlas free tier may not support, atomic updates sufficient | Multi-document transactions (ACID guarantees) |
+| **Timestamp-Based Transaction IDs** | Sufficient uniqueness for mock, deterministic parsing | UUID v4 (more randomness, harder to parse) |
+| **24-Hour Order Expiration** | Balances user convenience with stale session prevention | 1 hour (too restrictive), 7 days (too permissive) |
+| **Quantity Default = 1** | Digital books rarely need multiple copies | Enforce quantity = 1 (prevents gift purchase scenarios) |
+| **No Unique Constraint on Purchase** | Allows refund/repurchase workflow | Unique constraint (complicates refund handling) |
+| **Currency Hardcoded to BDT** | Bangladesh-specific platform | Multi-currency support (YAGNI for MVP) |
+| **Server Components for Result Pages** | Verifies status server-side, prevents URL manipulation | Client Components (allows status spoofing) |
+
+### Open Questions
+
+1. **Gift Purchases**: Should users be able to purchase books for other users?
+   - **Impact**: Requires recipient email input, notification system, separate Purchase.recipient field
+   - **Decision**: Defer to Phase 9 (user feedback needed)
+
+2. **Discount Codes**: Should platform support promotional discount codes?
+   - **Impact**: Requires DiscountCode model, validation logic, discount calculation changes
+   - **Decision**: Defer to Phase 8 (requires admin UI)
+
+3. **Order History Pagination**: How many orders should be displayed per page?
+   - **Impact**: Query limit and pagination logic in user dashboard
+   - **Decision**: Default 20 orders per page (adjust based on usage analytics)
+
+4. **Partial Refunds**: Should refunds be all-or-nothing or support partial refunds?
+   - **Impact**: Requires refund amount tracking, partial purchase status
+   - **Decision**: Phase 6 supports full refunds only, defer partial to Phase 10
+
+5. **Transaction ID Storage**: Should we store both provider transaction ID and internal order ID?
+   - **Impact**: Additional field on Order model
+   - **Decision**: Current design stores provider transaction ID only (sufficient for reconciliation)
+
+### Assumptions
+
+1. **MongoDB Atlas Availability**: Database connection stable and performant
+2. **Auth.js Session Reliability**: Session tokens valid and not expired during payment flow
+3. **Book Price Stability**: Book prices don't change during active checkout session (acceptable tradeoff)
+4. **User Patience**: Users complete payment within 24-hour expiration window (analytics will validate)
+5. **Single Currency**: All transactions in BDT (Bangladesh Taka) for Phase 6
+6. **Mock Provider Development Only**: No production traffic will use MockPaymentProvider
+
+---
+
+## Appendix
+
+### State Transition Diagram
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING: Order Created (paymentAttemptId: null)
+    
+    PENDING --> PAYMENT_INITIATED: initiatePayment (new attemptId)
+    note right of PAYMENT_INITIATED
+        paymentAttemptId: UUID v4
+        transactionId: MOCK_TXN_{attemptId}_{ts}
+    end note
+    
+    PAYMENT_INITIATED --> PAID: verifyCallback SUCCESS + Transaction Commit
+    PAYMENT_INITIATED --> FAILED: verifyCallback FAILED
+    PAYMENT_INITIATED --> CANCELLED: verifyCallback CANCELLED
+    PAYMENT_INITIATED --> EXPIRED: 24 Hours Elapsed
+    
+    FAILED --> PAYMENT_INITIATED: initiatePayment (new attemptId, old invalid)
+    CANCELLED --> PAYMENT_INITIATED: initiatePayment (new attemptId, old invalid)
+    
+    PAID --> REFUNDED: Admin Refund Action
+    
+    FAILED --> [*]
+    CANCELLED --> [*]
+    EXPIRED --> [*]
+    REFUNDED --> [*]
+    
+    note right of PAID
+        Purchase records created atomically
+        User granted book access
+        Unique constraint prevents duplicates
+    end note
+    
+    note right of REFUNDED
+        Purchase status changed to REFUNDED
+        Book access revoked
+    end note
+    
+    note right of EXPIRED
+        Cannot complete payment
+        Must create new order
+    end note
+```
+
+### Order Status Transitions Table
+
+| Current Status | Allowed Transitions | Trigger | Conditions |
+|----------------|---------------------|---------|------------|
+| PENDING (no attemptId) | PAYMENT_INITIATED | initiatePayment | Age < 24 hours, generates new paymentAttemptId |
+| PENDING (expired) | — | None | Age > 24 hours, must create new order |
+| PAYMENT_INITIATED | PAID | Payment verification success + transaction commit | attemptId match, age < 24h, verified=true, status=SUCCESS, all purchases created |
+| PAYMENT_INITIATED | FAILED | Payment verification failed | attemptId match, age < 24h, verified=true, status=FAILED |
+| PAYMENT_INITIATED | CANCELLED | Payment cancelled | attemptId match, age < 24h, verified=true, status=CANCELLED |
+| PAYMENT_INITIATED | EXPIRED | Time elapsed | Age > 24 hours, payment rejected |
+| FAILED | PAYMENT_INITIATED | initiatePayment (retry) | Generates NEW paymentAttemptId, old attempts invalid |
+| CANCELLED | PAYMENT_INITIATED | initiatePayment (retry) | Generates NEW paymentAttemptId, old attempts invalid |
+| PAID | REFUNDED | Admin action | Admin role, refund request |
+| FAILED | — | None allowed (unless retried) | Terminal state until retry |
+| CANCELLED | — | None allowed (unless retried) | Terminal state until retry |
+| EXPIRED | — | None allowed | Terminal state |
+| REFUNDED | — | None allowed | Terminal state |
+
+### Failure Scenarios and Recovery
+
+| Failure Scenario | Detection | Recovery Strategy | Data Consistency |
+|------------------|-----------|-------------------|------------------|
+| **Book deleted during fulfillment** | Book.findById returns null in transaction | Transaction aborted, order remains PENDING | Full rollback, user retries |
+| **Duplicate payment callback** | Unique constraint on {order, book} | Duplicate key error (11000), treat as idempotent success | Consistent (constraint prevents duplicates) |
+| **Concurrent verification** | Atomic update matched=0, or duplicate key error | First request succeeds, second treated as idempotent | Consistent (atomic + unique constraint) |
+| **Partial purchase creation error** | Any Purchase.create throws in transaction | Transaction aborted, all changes rolled back | Full rollback, order remains PENDING |
+| **Database connection lost** | Mongoose throws connection error | Return 500 error, log, user retries | No state change (transaction not started) |
+| **Session expired during payment** | getCurrentUser returns null | Redirect to /login | Order remains PENDING |
+| **Transaction ID mismatch** | order.transactionId !== callback.transactionId | Reject verification | No state change |
+| **Payment attempt ID mismatch** | order.paymentAttemptId !== extracted attemptId | Reject verification "stale or forged" | No state change |
+| **Stale payment attempt** | Old attemptId after new initiation | Reject verification "stale attempt" | No state change, latest attempt valid |
+| **Expired order payment attempt (initiation)** | Age > 24 hours in initiatePayment | Reject with "Order expired" | No state change |
+| **Expired order payment attempt (verification)** | Age > 24 hours in verifyPaymentCallback | Reject with "Order expired" | No state change |
+| **Transaction commit failure** | session.commitTransaction() throws | Transaction aborted automatically | Full rollback, order remains PENDING |
+| **Forged transaction ID** | UUID format validation fails | Reject verification "invalid format" | No state change |
+| **Out-of-order payment attempts** | Attempt 1 completes after attempt 2 initiated | Reject attempt 1 (stale attemptId) | Consistent (only latest attempt valid) |
+
+### API Contract Reference
+
+**createOrderFromCart**:
+```typescript
+Input: {
+  items: Array<{
+    bookId: string;      // MongoDB ObjectId as string
+    quantity: number;    // Positive integer, default 1
+  }>
+}
+
+Success Output: {
+  success: true;
+  orderId: string;       // MongoDB ObjectId as string
+}
+
+Error Output: {
+  success: false;
+  error: string;         // Human-readable error message
+}
+```
+
+**initiatePayment**:
+```typescript
+Input: orderId: string   // MongoDB ObjectId as string
+
+Success Output: {
+  success: true;
+  transactionId: string; // Format: MOCK_TXN_{orderId}_{timestamp}
+  paymentUrl: string;    // Route: /checkout/mock-payment/{transactionId}
+}
+
+Error Output: {
+  success: false;
+  error: string;
+}
+```
+
+**verifyPaymentCallback**:
+```typescript
+Input: {
+  transactionId: string;                        // Format: MOCK_TXN_{orderId}_{timestamp}
+  status: 'SUCCESS' | 'FAILED' | 'CANCELLED';  // Payment outcome
+}
+
+Success Output: {
+  success: true;
+  orderId: string;
+  status: 'PAID' | 'FAILED' | 'CANCELLED';     // Order status after verification
+  transactionId: string;
+}
+
+Error Output: {
+  success: false;
+  error: string;
+}
+```
+
+**getOrderDetails**:
+```typescript
+Input: orderId: string
+
+Success Output: {
+  success: true;
+  order: {
+    id: string;
+    items: Array<{
+      bookId: string;
+      title: string;
+      price: number;
+      quantity: number;
+      lineTotal: number;
+    }>;
+    subtotal: number;
+    discount: number;
+    total: number;
+    currency: string;
+    status: OrderStatus;
+    paymentMethod: PaymentMethod;
+    transactionId: string | null;
+    createdAt: string;      // ISO 8601 format
+    isExpired: boolean;
+  }
+}
+
+Error Output: {
+  success: false;
+  error: string;
+}
+```
+
+**checkUserOwnsBook**:
+```typescript
+Input: {
+  userId: string;         // MongoDB ObjectId as string
+  bookId: string;         // MongoDB ObjectId as string
+}
+
+Output: boolean          // true if ACTIVE purchase exists, false otherwise
+```
+
+### File Structure Summary
+
+```
+src/
+├── lib/
+│   └── payments/
+│       ├── types.ts                           # PaymentProvider interface, result types
+│       ├── MockPaymentProvider.ts             # Mock implementation
+│       └── factory.ts                         # getPaymentProvider() factory
+│
+├── validators/
+│   └── checkout.ts                            # CreateOrderInput Zod schema
+│
+├── types/
+│   └── checkout.ts                            # Response types, frontend interfaces
+│
+├── actions/
+│   └── checkout.ts                            # All server actions (createOrder, initiatePayment, etc.)
+│
+└── app/
+    └── checkout/
+        ├── [orderId]/
+        │   └── page.tsx                       # Checkout review page
+        ├── mock-payment/
+        │   └── [transactionId]/
+        │       └── page.tsx                   # Mock payment simulator
+        ├── success/
+        │   └── [orderId]/
+        │       └── page.tsx                   # Success confirmation
+        ├── failed/
+        │   └── [orderId]/
+        │       └── page.tsx                   # Failure messaging
+        └── cancelled/
+            └── [orderId]/
+                └── page.tsx                   # Cancellation confirmation
+```
+
+---
+
+## Summary
+
+This design document provides a comprehensive blueprint for implementing the Payment Mock Provider feature in Phase 6 of the Ebook Platform. The architecture prioritizes security (cryptographically secure payment attempts, zero client trust), reliability (ACID transactions, database-level idempotency), and maintainability (provider abstraction for future SSLCOMMERZ migration).
+
+**Key Design Principles Enforced**:
+- Order ≠ Purchase (transient vs durable ownership)
+- Cryptographic payment attempt validation (UUID v4, server-controlled)
+- MongoDB ACID transactions (atomic fulfillment, guaranteed rollback)
+- Database-level idempotency (unique constraint {order: 1, book: 1})
+- Expiration enforcement at all boundaries (initiation + verification)
+- Server-side price integrity (client values rejected)
+- Provider abstraction (migration-ready)
+
+**Critical Architecture Decisions**:
+
+| Decision | Rationale |
+|----------|-----------|
+| **MongoDB Transactions** | Atlas M0 free tier supports ACID transactions via replica sets. Ensures atomic order fulfillment without partial purchase states. |
+| **Cryptographic Payment Attempt IDs** | UUID v4 (128-bit randomness) prevents clients from forging payment callbacks. Stale attempts auto-invalidated on retry. |
+| **Unique Constraint {order, book}** | Database-level enforcement prevents race conditions in concurrent fulfillment. Query-before-insert insufficient. |
+| **Expiration Enforcement Both Stages** | UI-only checks bypassable via direct API. Server-side checks in initiation AND verification prevent all bypasses. |
+| **Transaction Rollback on Any Error** | Partial fulfillment (order PAID, some purchases missing) unacceptable. All-or-nothing atomicity required. |
+
+**Implementation Readiness**: All technical specifications, data flows, error handling strategies, security boundaries, transaction patterns, and UI component structures are fully defined and ready for development execution in the documented phase sequence (A → F).
+
+**Next Steps**: Proceed to task creation phase to generate granular implementation tasks with dependencies.
