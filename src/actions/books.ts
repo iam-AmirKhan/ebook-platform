@@ -23,6 +23,7 @@ import dbConnect from "@/lib/db/mongoose";
 import Book from "@/models/Book";
 import Category from "@/models/Category";
 import Author from "@/models/Author";
+import User from "@/models/User";
 import {
   BookCreateSchema,
   BookUpdateSchema,
@@ -31,6 +32,8 @@ import {
 } from "@/validators/book";
 import type { ActionResult } from "@/types/author";
 import type { Types } from "mongoose";
+import { sendAdminBookPublishedEmail } from "@/lib/notifications/admin-book-published";
+import { sendAuthorBookPublishedEmail } from "@/lib/notifications/author-book-published";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -474,6 +477,51 @@ export async function publishBook(bookId: string): Promise<ActionResult> {
         success: false,
         error: "Book status changed. Refresh the dashboard and try again.",
       };
+    }
+
+    if (publishResult.modifiedCount === 1) {
+      try {
+        const [authorDoc, userDoc] = await Promise.all([
+          Author.findById(authorId).select("penName").lean(),
+          User.findById(user.id).select("email name").lean(),
+        ]);
+
+        const authorName = authorDoc?.penName || userDoc?.name || user.name || "লেখক";
+        const authorEmail = (userDoc?.email || user.email)?.trim().toLowerCase();
+
+        const notifications: Promise<unknown>[] = [
+          sendAdminBookPublishedEmail({
+            bookId: String(book._id),
+            bookTitle: book.title,
+            bookSlug: book.slug,
+            authorName,
+            price: book.price,
+            currency: book.currency || "BDT",
+          }),
+        ];
+
+        if (authorEmail) {
+          notifications.push(
+            sendAuthorBookPublishedEmail({
+              recipientEmail: authorEmail,
+              recipientName: authorName,
+              bookTitle: book.title,
+              bookSlug: book.slug,
+            })
+          );
+        } else {
+          console.warn(
+            "[publishBook] Skipped author confirmation email: No verified user email found."
+          );
+        }
+
+        await Promise.allSettled(notifications);
+      } catch (notifyErr) {
+        console.error(
+          "[publishBook] Non-fatal notification error:",
+          notifyErr instanceof Error ? notifyErr.message : "Unknown notification error"
+        );
+      }
     }
 
     revalidatePath("/author");
