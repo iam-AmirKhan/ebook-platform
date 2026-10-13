@@ -2,6 +2,7 @@ import dbConnect from "@/lib/db/mongoose";
 import Book, { type BookStatus } from "@/models/Book";
 import Author from "@/models/Author";
 import Category from "@/models/Category";
+import type { BookFormData } from "@/types/author";
 
 export interface AdminBookCounts {
   all: number;
@@ -39,6 +40,26 @@ export interface AdminBooksResult {
   totalCount: number;
   totalPages: number;
   currentPage: number;
+}
+
+export interface AdminBookEditData extends BookFormData {
+  _id: string;
+  author: {
+    _id: string;
+    penName: string;
+    slug: string;
+  };
+  category: {
+    _id: string;
+    name: string;
+    slug: string;
+  };
+}
+
+const OBJECT_ID_REGEX = /^[0-9a-fA-F]{24}$/;
+
+function isValidObjectId(id: unknown): id is string {
+  return typeof id === "string" && OBJECT_ID_REGEX.test(id);
 }
 
 function escapeRegex(text: string): string {
@@ -159,5 +180,82 @@ export async function getAdminBooks(
     totalCount,
     totalPages,
     currentPage,
+  };
+}
+
+/**
+ * Fetch a single book across any author for admin editing.
+ * Returns editable fields + author/category details, or null on invalid ID / not found.
+ */
+export async function getAdminBookForEdit(
+  bookId: string
+): Promise<AdminBookEditData | null> {
+  if (!isValidObjectId(bookId)) {
+    return null;
+  }
+
+  await dbConnect();
+
+  // Ensure referenced models are registered in Mongoose runtime
+  void Author;
+  void Category;
+
+  const book = await Book.findById(bookId)
+    .populate<{ author: { _id: unknown; penName?: string; slug?: string } | null }>(
+      "author",
+      "_id penName slug"
+    )
+    .populate<{ category: { _id: unknown; name?: string; slug?: string } | null }>(
+      "category",
+      "_id name slug"
+    )
+    .lean();
+
+  if (!book) {
+    return null;
+  }
+
+  const rawAuthor = book.author as
+    | { _id: unknown; penName?: string; slug?: string }
+    | null
+    | undefined;
+  const rawCategory = book.category as
+    | { _id: unknown; name?: string; slug?: string }
+    | null
+    | undefined;
+
+  return {
+    _id: String(book._id),
+    title: book.title,
+    slug: book.slug,
+    coverImage: book.coverImage ?? null,
+    categoryId: rawCategory?._id ? String(rawCategory._id) : String(book.category),
+    language: book.language ?? "বাংলা",
+    summary: book.summary ?? "",
+    description: book.description,
+    learningOutcomes: book.learningOutcomes ?? [],
+    price: typeof book.price === "number" ? book.price : 0,
+    discountPrice: typeof book.discountPrice === "number" ? book.discountPrice : null,
+    status: book.status,
+    chapters: (book.chapters ?? [])
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map((ch) => ({
+        order: ch.order,
+        title: ch.title,
+        teaser: ch.teaser ?? "",
+        content: ch.content ?? "",
+        isPreview: ch.isPreview ?? false,
+      })),
+    author: {
+      _id: rawAuthor?._id ? String(rawAuthor._id) : String(book.author),
+      penName: rawAuthor?.penName ?? "অজানা লেখক",
+      slug: rawAuthor?.slug ?? "",
+    },
+    category: {
+      _id: rawCategory?._id ? String(rawCategory._id) : String(book.category),
+      name: rawCategory?.name ?? "শ্রেণীবিহীন",
+      slug: rawCategory?.slug ?? "",
+    },
   };
 }

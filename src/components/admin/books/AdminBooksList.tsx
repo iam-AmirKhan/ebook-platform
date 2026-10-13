@@ -9,7 +9,7 @@ import {
 } from "@/lib/data/admin-books";
 import { BookStatusBadge } from "@/components/author/BookStatusBadge";
 import { Pagination } from "@/components/books/Pagination";
-import { Search, X, BookOpen, ExternalLink } from "lucide-react";
+import { Search, X, BookOpen, ExternalLink, Edit3 } from "lucide-react";
 
 interface AdminBooksListProps {
   books: AdminBookItem[];
@@ -198,6 +198,7 @@ export function AdminBooksList({
                   <th className="px-4 py-3 font-semibold">মূল্য</th>
                   <th className="px-4 py-3 font-semibold">স্ট্যাটাস</th>
                   <th className="px-4 py-3 font-semibold">তৈরির তারিখ</th>
+                  <th className="px-4 py-3 font-semibold text-right">পদক্ষেপ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/40 text-foreground">
@@ -282,6 +283,17 @@ export function AdminBooksList({
                     <td className="px-4 py-3.5 text-muted-foreground font-[family-name:var(--font-bengali)]">
                       {formatDate(book.createdAt)}
                     </td>
+
+                    {/* Edit Action */}
+                    <td className="px-4 py-3.5 text-right">
+                      <Link
+                        href={`/admin/books/${book._id}/edit`}
+                        className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted hover:text-brand font-[family-name:var(--font-bengali)]"
+                      >
+                        <Edit3 className="size-3" />
+                        সম্পাদনা
+                      </Link>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -323,13 +335,17 @@ export function AdminBooksList({
                     </p>
                   </div>
 
-                  <div className="mt-2 flex items-center justify-between border-t border-border/40 pt-2 text-[11px]">
+                  <div className="mt-2.5 flex items-center justify-between border-t border-border/40 pt-2 text-[11px]">
                     <span className="text-muted-foreground font-[family-name:var(--font-bengali)]">
-                      {book.categoryName}
+                      {book.categoryName} &bull; <strong className="text-brand font-semibold">৳ {book.discountPrice ?? book.price}</strong>
                     </span>
-                    <span className="font-semibold text-brand">
-                      ৳ {book.discountPrice ?? book.price}
-                    </span>
+                    <Link
+                      href={`/admin/books/${book._id}/edit`}
+                      className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-foreground hover:bg-muted font-[family-name:var(--font-bengali)]"
+                    >
+                      <Edit3 className="size-3" />
+                      সম্পাদনা
+                    </Link>
                   </div>
                 </div>
               </div>
