@@ -63,6 +63,7 @@ export interface IBook {
   currency: string;
   contentUrl?: string | null;  // Reserved for future full-PDF delivery via R2
   status: BookStatus;
+  firstPublishedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 
@@ -146,6 +147,10 @@ const BookSchema = new Schema<IBookDocument>(
       enum: ["DRAFT", "PUBLISHED", "ARCHIVED"],
       default: "DRAFT",
       required: true,
+    },
+    firstPublishedAt: {
+      type: Date,
+      default: null,
     },
 
     // -------------------------------------------------------------------------
