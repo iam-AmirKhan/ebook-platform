@@ -397,6 +397,7 @@ export async function adminPublishBook(bookId: string): Promise<ActionResult> {
     }
 
     // 8. Revalidate affected paths
+    revalidatePath("/admin");
     revalidatePath("/admin/books");
     revalidatePath(`/admin/books/${bookId}/edit`);
     revalidatePath("/books");
@@ -455,6 +456,7 @@ export async function adminUnpublishBook(bookId: string): Promise<ActionResult> 
     }
 
     // 6. Revalidate affected paths
+    revalidatePath("/admin");
     revalidatePath("/admin/books");
     revalidatePath(`/admin/books/${bookId}/edit`);
     revalidatePath("/books");
@@ -509,6 +511,7 @@ export async function adminArchiveBook(bookId: string): Promise<ActionResult> {
     }
 
     // 6. Revalidate affected paths
+    revalidatePath("/admin");
     revalidatePath("/admin/books");
     revalidatePath(`/admin/books/${bookId}/edit`);
     revalidatePath("/books");

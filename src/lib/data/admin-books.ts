@@ -106,9 +106,14 @@ export async function getAdminBooks(
   void Author;
   void Category;
 
-  const limit = params.limit && params.limit > 0 ? params.limit : 15;
-  const currentPage = params.page && params.page > 0 ? params.page : 1;
-  const skip = (currentPage - 1) * limit;
+  const limit =
+    typeof params.limit === "number" && params.limit > 0
+      ? Math.floor(params.limit)
+      : 15;
+  const requestedPage =
+    typeof params.page === "number" && !isNaN(params.page) && params.page > 0
+      ? Math.floor(params.page)
+      : 1;
 
   const query: Record<string, unknown> = {};
 
@@ -127,22 +132,25 @@ export async function getAdminBooks(
     query.title = { $regex: escapeRegex(params.q.trim()), $options: "i" };
   }
 
-  const [rawBooks, totalCount] = await Promise.all([
-    Book.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate<{ author: { penName?: string; slug?: string } | null }>(
-        "author",
-        "penName slug"
-      )
-      .populate<{ category: { name?: string; slug?: string } | null }>(
-        "category",
-        "name slug"
-      )
-      .lean(),
-    Book.countDocuments(query),
-  ]);
+  // Determine the total number of matching books before calculating the effective page
+  const totalCount = await Book.countDocuments(query);
+  const totalPages = totalCount > 0 ? Math.ceil(totalCount / limit) : 1;
+  const effectivePage = totalCount > 0 ? Math.min(requestedPage, totalPages) : 1;
+  const skip = (effectivePage - 1) * limit;
+
+  const rawBooks = await Book.find(query)
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .populate<{ author: { penName?: string; slug?: string } | null }>(
+      "author",
+      "penName slug"
+    )
+    .populate<{ category: { name?: string; slug?: string } | null }>(
+      "category",
+      "name slug"
+    )
+    .lean();
 
   const books: AdminBookItem[] = rawBooks.map((book) => {
     const rawAuthor = book.author as
@@ -179,13 +187,11 @@ export async function getAdminBooks(
     };
   });
 
-  const totalPages = Math.ceil(totalCount / limit);
-
   return {
     books,
     totalCount,
     totalPages,
-    currentPage,
+    currentPage: effectivePage,
   };
 }
 

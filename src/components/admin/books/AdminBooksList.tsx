@@ -84,11 +84,17 @@ export function AdminBooksList({
   const searchParams = useSearchParams();
 
   const [searchInput, setSearchInput] = useState(searchQuery);
+  const [prevSearchQuery, setPrevSearchQuery] = useState(searchQuery);
+  if (searchQuery !== prevSearchQuery) {
+    setPrevSearchQuery(searchQuery);
+    setSearchInput(searchQuery);
+  }
   const [isPending, startTransition] = useTransition();
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null);
 
   const handleTabChange = (status: string) => {
+    setFeedback(null);
     const params = new URLSearchParams(searchParams.toString());
     if (status === "ALL") {
       params.delete("status");
@@ -101,6 +107,7 @@ export function AdminBooksList({
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFeedback(null);
     const params = new URLSearchParams(searchParams.toString());
     const trimmed = searchInput.trim();
     if (trimmed) {
@@ -114,6 +121,7 @@ export function AdminBooksList({
 
   const handleClearSearch = () => {
     setSearchInput("");
+    setFeedback(null);
     const params = new URLSearchParams(searchParams.toString());
     params.delete("q");
     params.delete("page");
