@@ -62,6 +62,12 @@ function isValidObjectId(id: unknown): id is string {
   return typeof id === "string" && OBJECT_ID_REGEX.test(id);
 }
 
+function toValidObjectIdString(id: unknown): string {
+  if (!id) return "";
+  const str = String(id);
+  return OBJECT_ID_REGEX.test(str) ? str : "";
+}
+
 function escapeRegex(text: string): string {
   return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
 }
@@ -224,12 +230,20 @@ export async function getAdminBookForEdit(
     | null
     | undefined;
 
+  const validCategoryId =
+    toValidObjectIdString(rawCategory?._id) ||
+    toValidObjectIdString(book.category);
+
+  const validAuthorId =
+    toValidObjectIdString(rawAuthor?._id) ||
+    toValidObjectIdString(book.author);
+
   return {
     _id: String(book._id),
     title: book.title,
     slug: book.slug,
     coverImage: book.coverImage ?? null,
-    categoryId: rawCategory?._id ? String(rawCategory._id) : String(book.category),
+    categoryId: validCategoryId,
     language: book.language ?? "বাংলা",
     summary: book.summary ?? "",
     description: book.description,
@@ -248,12 +262,12 @@ export async function getAdminBookForEdit(
         isPreview: ch.isPreview ?? false,
       })),
     author: {
-      _id: rawAuthor?._id ? String(rawAuthor._id) : String(book.author),
+      _id: validAuthorId,
       penName: rawAuthor?.penName ?? "অজানা লেখক",
       slug: rawAuthor?.slug ?? "",
     },
     category: {
-      _id: rawCategory?._id ? String(rawCategory._id) : String(book.category),
+      _id: validCategoryId,
       name: rawCategory?.name ?? "শ্রেণীবিহীন",
       slug: rawCategory?.slug ?? "",
     },

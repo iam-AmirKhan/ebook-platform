@@ -161,6 +161,16 @@ export function BookForm({
     }
   }, [state]);
 
+  // ── Error scroll/focus feedback ──────────────────────────────────────
+  const errorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (state.error && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      errorRef.current.focus();
+    }
+  }, [state.error]);
+
   return (
     <form
       ref={formRef}
@@ -195,8 +205,10 @@ export function BookForm({
       )}
       {state.error && (
         <div
+          ref={errorRef}
+          tabIndex={-1}
           role="alert"
-          className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive font-[family-name:var(--font-bengali)]"
+          className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive font-[family-name:var(--font-bengali)] outline-none focus:ring-2 focus:ring-destructive/40"
         >
           {state.error}
         </div>
@@ -371,7 +383,13 @@ export function BookForm({
             defaultValue={defaultValues?.description ?? ""}
             className={`${bengaliTextareaClass} min-h-[200px]`}
             placeholder="বইটি সম্পর্কে বিস্তারিত লিখুন"
+            aria-describedby={state.fieldErrors?.description ? "description-error" : undefined}
           />
+          {state.fieldErrors?.description && (
+            <p id="description-error" className="mt-1 text-xs text-destructive font-[family-name:var(--font-bengali)]">
+              {state.fieldErrors.description[0]}
+            </p>
+          )}
         </div>
 
         {/* Learning outcomes */}
@@ -467,8 +485,14 @@ export function BookForm({
                 defaultValue={defaultValues?.discountPrice ?? ""}
                 className={`${inputClass} pl-7`}
                 placeholder="—"
+                aria-describedby={state.fieldErrors?.discountPrice ? "discount-price-error" : undefined}
               />
             </div>
+            {state.fieldErrors?.discountPrice && (
+              <p id="discount-price-error" className="mt-1 text-xs text-destructive font-[family-name:var(--font-bengali)]">
+                {state.fieldErrors.discountPrice[0]}
+              </p>
+            )}
           </div>
         </div>
       </section>
@@ -525,6 +549,15 @@ export function BookForm({
       </section>
 
       {/* ── Submit buttons ── */}
+      {state.error && (
+        <div
+          aria-hidden="true"
+          className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive font-[family-name:var(--font-bengali)]"
+        >
+          {state.error}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-3">
         <Button
           type="submit"

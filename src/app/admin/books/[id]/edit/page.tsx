@@ -35,7 +35,20 @@ export default async function AdminEditBookPage({
     notFound();
   }
 
-  // 3. Bind adminUpdateBook with the bookId
+  // 3. Ensure current book category remains selectable even if inactive
+  const categoryOptions = [...categories];
+  if (
+    book.categoryId &&
+    !categoryOptions.some((cat) => cat._id === book.categoryId)
+  ) {
+    categoryOptions.push({
+      _id: book.categoryId,
+      name: `${book.category.name || "বর্তমান বিভাগ"} (নিষ্ক্রিয়)`,
+      slug: book.category.slug || "",
+    });
+  }
+
+  // 4. Bind adminUpdateBook with the bookId
   const updateBookWithId = adminUpdateBook.bind(null, id);
 
   return (
@@ -76,7 +89,7 @@ export default async function AdminEditBookPage({
           <BookForm
             action={updateBookWithId}
             defaultValues={book}
-            categories={categories}
+            categories={categoryOptions}
           />
         </div>
       </div>
