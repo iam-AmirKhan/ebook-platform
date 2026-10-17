@@ -378,12 +378,19 @@ export async function updateBook(
       }
     );
 
-    revalidatePath("/author");
-    revalidatePath(`/author/books/${bookId}/edit`);
-    if (existingBook.slug) {
-      revalidatePath(`/books/${existingBook.slug}`);
+    // 9. Revalidate relevant paths (non-fatal post-save side effects)
+    try {
+      revalidatePath("/author");
+      revalidatePath(`/author/books/${bookId}/edit`);
+      if (existingBook.slug) {
+        revalidatePath(`/books/${existingBook.slug}`);
+      }
+      if (existingBook.slug !== data.slug) {
+        revalidatePath(`/books/${data.slug}`);
+      }
+    } catch (revalidateError) {
+      console.warn("[updateBook] Non-fatal revalidation error:", revalidateError);
     }
-    revalidatePath(`/books/${data.slug}`);
 
     return { success: true, bookId, slug: data.slug };
   } catch (error) {
