@@ -1,15 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   type AdminBookItem,
   type AdminBookCounts,
 } from "@/lib/data/admin-books";
+import {
+  adminPublishBook,
+  adminUnpublishBook,
+  adminArchiveBook,
+} from "@/actions/admin-books";
 import { BookStatusBadge } from "@/components/author/BookStatusBadge";
 import { Pagination } from "@/components/books/Pagination";
-import { Search, X, BookOpen, ExternalLink, Edit3 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Search,
+  X,
+  BookOpen,
+  ExternalLink,
+  Edit3,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  Upload,
+  EyeOff,
+  Archive,
+} from "lucide-react";
 
 interface AdminBooksListProps {
   books: AdminBookItem[];
@@ -19,6 +37,18 @@ interface AdminBooksListProps {
   currentPage: number;
   activeFilter: string;
   searchQuery: string;
+}
+
+type ModerationActionType = "PUBLISH" | "UNPUBLISH" | "ARCHIVE";
+
+interface PendingAction {
+  type: ModerationActionType;
+  book: AdminBookItem;
+}
+
+interface ActionFeedback {
+  type: "success" | "error";
+  message: string;
 }
 
 const TABS = [
@@ -54,6 +84,9 @@ export function AdminBooksList({
   const searchParams = useSearchParams();
 
   const [searchInput, setSearchInput] = useState(searchQuery);
+  const [isPending, startTransition] = useTransition();
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [feedback, setFeedback] = useState<ActionFeedback | null>(null);
 
   const handleTabChange = (status: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -87,8 +120,72 @@ export function AdminBooksList({
     router.push(`${pathname}?${params.toString()}`);
   };
 
+  const handleConfirmAction = () => {
+    if (!pendingAction) return;
+
+    const { type, book } = pendingAction;
+    setFeedback(null);
+
+    startTransition(async () => {
+      let res;
+      if (type === "PUBLISH") {
+        res = await adminPublishBook(book._id);
+      } else if (type === "UNPUBLISH") {
+        res = await adminUnpublishBook(book._id);
+      } else {
+        res = await adminArchiveBook(book._id);
+      }
+
+      if (res.success) {
+        const messages: Record<ModerationActionType, string> = {
+          PUBLISH: `"${book.title}" বইটি সফলভাবে প্রকাশিত হয়েছে।`,
+          UNPUBLISH: `"${book.title}" বইটি প্রত্যাহার করে ড্রাফট করা হয়েছে।`,
+          ARCHIVE: `"${book.title}" বইটি সংরক্ষণাগারে পাঠানো হয়েছে।`,
+        };
+        setFeedback({ type: "success", message: messages[type] });
+        setPendingAction(null);
+        router.refresh();
+      } else {
+        setFeedback({
+          type: "error",
+          message: res.error || "কার্যক্রম সম্পন্ন করতে সমস্যা হয়েছে।",
+        });
+        setPendingAction(null);
+      }
+    });
+  };
+
   return (
     <div className="space-y-6">
+      {/* Feedback Banner */}
+      {feedback && (
+        <div
+          role="status"
+          className={`flex items-center justify-between rounded-xl border p-4 text-xs font-medium font-[family-name:var(--font-bengali)] ${
+            feedback.type === "success"
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
+              : "border-destructive/30 bg-destructive/10 text-destructive"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {feedback.type === "success" ? (
+              <CheckCircle2 className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <AlertCircle className="size-4 shrink-0 text-destructive" />
+            )}
+            <span>{feedback.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFeedback(null)}
+            className="text-xs underline-offset-4 hover:underline"
+            aria-label="বার্তা বন্ধ করুন"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Controls Bar: Tabs & Search */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         {/* Filter Tabs */}
@@ -284,15 +381,72 @@ export function AdminBooksList({
                       {formatDate(book.createdAt)}
                     </td>
 
-                    {/* Edit Action */}
+                    {/* Actions */}
                     <td className="px-4 py-3.5 text-right">
-                      <Link
-                        href={`/admin/books/${book._id}/edit`}
-                        className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted hover:text-brand font-[family-name:var(--font-bengali)]"
-                      >
-                        <Edit3 className="size-3" />
-                        সম্পাদনা
-                      </Link>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Link
+                          href={`/admin/books/${book._id}/edit`}
+                          id={`edit-book-${book._id}`}
+                          className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted hover:text-brand font-[family-name:var(--font-bengali)]"
+                        >
+                          <Edit3 className="size-3" />
+                          সম্পাদনা
+                        </Link>
+
+                        {book.status === "DRAFT" && (
+                          <>
+                            <button
+                              type="button"
+                              id={`publish-btn-${book._id}`}
+                              onClick={() => setPendingAction({ type: "PUBLISH", book })}
+                              disabled={isPending}
+                              className="inline-flex items-center gap-1 rounded-md border border-brand/30 bg-brand/10 px-2 py-1 text-xs font-semibold text-brand transition-colors hover:bg-brand/20 disabled:opacity-50 font-[family-name:var(--font-bengali)]"
+                              title="বইটি প্রকাশ করুন"
+                            >
+                              <Upload className="size-3" />
+                              প্রকাশ
+                            </button>
+                            <button
+                              type="button"
+                              id={`archive-btn-${book._id}`}
+                              onClick={() => setPendingAction({ type: "ARCHIVE", book })}
+                              disabled={isPending}
+                              className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-xs font-medium text-destructive/80 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 font-[family-name:var(--font-bengali)]"
+                              title="সংরক্ষণাগারে পাঠান"
+                            >
+                              <Archive className="size-3" />
+                              সংরক্ষণ
+                            </button>
+                          </>
+                        )}
+
+                        {book.status === "PUBLISHED" && (
+                          <>
+                            <button
+                              type="button"
+                              id={`unpublish-btn-${book._id}`}
+                              onClick={() => setPendingAction({ type: "UNPUBLISH", book })}
+                              disabled={isPending}
+                              className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50 font-[family-name:var(--font-bengali)]"
+                              title="বইটি প্রত্যাহার করে ড্রাফট করুন"
+                            >
+                              <EyeOff className="size-3" />
+                              প্রত্যাহার
+                            </button>
+                            <button
+                              type="button"
+                              id={`archive-btn-${book._id}`}
+                              onClick={() => setPendingAction({ type: "ARCHIVE", book })}
+                              disabled={isPending}
+                              className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-xs font-medium text-destructive/80 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 font-[family-name:var(--font-bengali)]"
+                              title="সংরক্ষণাগারে পাঠান"
+                            >
+                              <Archive className="size-3" />
+                              সংরক্ষণ
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -335,17 +489,71 @@ export function AdminBooksList({
                     </p>
                   </div>
 
-                  <div className="mt-2.5 flex items-center justify-between border-t border-border/40 pt-2 text-[11px]">
+                  <div className="mt-2.5 flex flex-wrap items-center justify-between border-t border-border/40 pt-2 gap-2 text-[11px]">
                     <span className="text-muted-foreground font-[family-name:var(--font-bengali)]">
                       {book.categoryName} &bull; <strong className="text-brand font-semibold">৳ {book.discountPrice ?? book.price}</strong>
                     </span>
-                    <Link
-                      href={`/admin/books/${book._id}/edit`}
-                      className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-foreground hover:bg-muted font-[family-name:var(--font-bengali)]"
-                    >
-                      <Edit3 className="size-3" />
-                      সম্পাদনা
-                    </Link>
+
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Link
+                        href={`/admin/books/${book._id}/edit`}
+                        id={`mobile-edit-book-${book._id}`}
+                        className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-foreground hover:bg-muted font-[family-name:var(--font-bengali)]"
+                      >
+                        <Edit3 className="size-3" />
+                        সম্পাদনা
+                      </Link>
+
+                      {book.status === "DRAFT" && (
+                        <>
+                          <button
+                            type="button"
+                            id={`mobile-publish-btn-${book._id}`}
+                            onClick={() => setPendingAction({ type: "PUBLISH", book })}
+                            disabled={isPending}
+                            className="inline-flex items-center gap-1 rounded-md border border-brand/30 bg-brand/10 px-2 py-0.5 text-xs font-semibold text-brand hover:bg-brand/20 disabled:opacity-50 font-[family-name:var(--font-bengali)]"
+                          >
+                            <Upload className="size-3" />
+                            প্রকাশ
+                          </button>
+                          <button
+                            type="button"
+                            id={`mobile-archive-btn-${book._id}`}
+                            onClick={() => setPendingAction({ type: "ARCHIVE", book })}
+                            disabled={isPending}
+                            className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-1.5 py-0.5 text-xs font-medium text-destructive/80 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 font-[family-name:var(--font-bengali)]"
+                            title="সংরক্ষণাগারে পাঠান"
+                          >
+                            <Archive className="size-3" />
+                          </button>
+                        </>
+                      )}
+
+                      {book.status === "PUBLISHED" && (
+                        <>
+                          <button
+                            type="button"
+                            id={`mobile-unpublish-btn-${book._id}`}
+                            onClick={() => setPendingAction({ type: "UNPUBLISH", book })}
+                            disabled={isPending}
+                            className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50 font-[family-name:var(--font-bengali)]"
+                          >
+                            <EyeOff className="size-3" />
+                            প্রত্যাহার
+                          </button>
+                          <button
+                            type="button"
+                            id={`mobile-archive-btn-${book._id}`}
+                            onClick={() => setPendingAction({ type: "ARCHIVE", book })}
+                            disabled={isPending}
+                            className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-1.5 py-0.5 text-xs font-medium text-destructive/80 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 font-[family-name:var(--font-bengali)]"
+                            title="সংরক্ষণাগারে পাঠান"
+                          >
+                            <Archive className="size-3" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -366,6 +574,122 @@ export function AdminBooksList({
             </div>
           )}
         </>
+      )}
+
+      {/* Moderation Confirmation Dialog */}
+      {pendingAction && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="moderation-dialog-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isPending) {
+              setPendingAction(null);
+            }
+          }}
+        >
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl animate-in fade-in zoom-in-95">
+            <h3
+              id="moderation-dialog-title"
+              className="text-base font-semibold text-foreground font-[family-name:var(--font-bengali)]"
+            >
+              {pendingAction.type === "PUBLISH" && "বই প্রকাশ নিশ্চিত করুন"}
+              {pendingAction.type === "UNPUBLISH" && "বই প্রত্যাহার নিশ্চিত করুন"}
+              {pendingAction.type === "ARCHIVE" && "বই সংরক্ষণাগারে পাঠানো নিশ্চিত করুন"}
+            </h3>
+
+            <p className="mt-2 text-sm text-muted-foreground font-[family-name:var(--font-bengali)]">
+              {pendingAction.type === "PUBLISH" && (
+                <>
+                  আপনি কি <strong>&ldquo;{pendingAction.book.title}&rdquo;</strong> বইটি প্রকাশ করতে চান? এটি সাথে সাথে পাবলিক ক্যাটালগে সবার জন্য দৃশ্যমান হবে।
+                </>
+              )}
+              {pendingAction.type === "UNPUBLISH" && (
+                <>
+                  আপনি কি <strong>&ldquo;{pendingAction.book.title}&rdquo;</strong> বইটি প্রত্যাহার করতে চান? এটি পাবলিক ক্যাটালগ থেকে সরিয়ে ড্রাফটে ফেরত নেওয়া হবে।
+                </>
+              )}
+              {pendingAction.type === "ARCHIVE" && (
+                <>
+                  আপনি কি <strong>&ldquo;{pendingAction.book.title}&rdquo;</strong> বইটি সংরক্ষণাগারে পাঠাতে চান? এটি পাবলিক থেকে সরিয়ে নেওয়া হবে।
+                </>
+              )}
+            </p>
+
+            {pendingAction.type === "PUBLISH" && (
+              <div className="mt-3 rounded-lg border border-brand/20 bg-brand/5 p-3 text-xs text-foreground/80 font-[family-name:var(--font-bengali)]">
+                ✓ বইটি প্রকাশিত অবস্থায় পাঠকরা দেখতে ও পড়তে পারবেন।
+                <br />
+                ✓ প্রথমবার প্রকাশের ক্ষেত্রে লেখক নিশ্চিতকরণ ইমেইল পাবেন।
+              </div>
+            )}
+
+            {pendingAction.type === "UNPUBLISH" && (
+              <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-800 dark:text-amber-300 font-[family-name:var(--font-bengali)]">
+                ⚠️ বইটি পাবলিক ক্যাটালগে আর দেখা যাবে না। এটি ড্রাফট তালিকায় থাকবে।
+              </div>
+            )}
+
+            {pendingAction.type === "ARCHIVE" && (
+              <div className="mt-3 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-xs text-destructive font-[family-name:var(--font-bengali)]">
+                ⚠️ বইটি সংরক্ষণাগারে পাঠানো হবে।
+              </div>
+            )}
+
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isPending}
+                onClick={() => setPendingAction(null)}
+                className="font-[family-name:var(--font-bengali)]"
+              >
+                বাতিল
+              </Button>
+
+              {pendingAction.type === "PUBLISH" && (
+                <Button
+                  id={`confirm-publish-btn-${pendingAction.book._id}`}
+                  size="sm"
+                  disabled={isPending}
+                  onClick={handleConfirmAction}
+                  className="bg-brand text-brand-foreground hover:bg-brand/90 font-[family-name:var(--font-bengali)]"
+                >
+                  {isPending && <Loader2 className="size-3.5 animate-spin mr-1" />}
+                  হ্যাঁ, প্রকাশ করুন
+                </Button>
+              )}
+
+              {pendingAction.type === "UNPUBLISH" && (
+                <Button
+                  id={`confirm-unpublish-btn-${pendingAction.book._id}`}
+                  size="sm"
+                  disabled={isPending}
+                  onClick={handleConfirmAction}
+                  className="bg-amber-600 text-white hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600 font-[family-name:var(--font-bengali)]"
+                >
+                  {isPending && <Loader2 className="size-3.5 animate-spin mr-1" />}
+                  হ্যাঁ, প্রত্যাহার করুন
+                </Button>
+              )}
+
+              {pendingAction.type === "ARCHIVE" && (
+                <Button
+                  id={`confirm-archive-btn-${pendingAction.book._id}`}
+                  variant="destructive"
+                  size="sm"
+                  disabled={isPending}
+                  onClick={handleConfirmAction}
+                  className="font-[family-name:var(--font-bengali)]"
+                >
+                  {isPending && <Loader2 className="size-3.5 animate-spin mr-1" />}
+                  সংরক্ষণাগারে পাঠান
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
