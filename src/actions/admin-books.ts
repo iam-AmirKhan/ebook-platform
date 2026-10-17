@@ -5,12 +5,16 @@ import { requireAdmin } from "@/lib/auth/authorization";
 import dbConnect from "@/lib/db/mongoose";
 import Book from "@/models/Book";
 import Category from "@/models/Category";
+import Author from "@/models/Author";
+import User from "@/models/User";
 import {
   BookUpdateSchema,
   BookPublishSchema,
   generateSlug,
 } from "@/validators/book";
 import type { ActionResult } from "@/types/author";
+import { sendAdminBookPublishedEmail } from "@/lib/notifications/admin-book-published";
+import { sendAuthorBookPublishedEmail } from "@/lib/notifications/author-book-published";
 
 const OBJECT_ID_REGEX = /^[0-9a-fA-F]{24}$/;
 
@@ -235,5 +239,279 @@ export async function adminUpdateBook(
       return duplicateSlugResult(getDuplicateSlug(error, attemptedSlug));
     }
     return { success: false, error: GENERIC_UPDATE_ERROR };
+  }
+}
+
+const GENERIC_PUBLISH_ERROR = "বই প্রকাশ করার সময় সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।";
+const GENERIC_UNPUBLISH_ERROR = "বই প্রত্যাহার করার সময় সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।";
+const GENERIC_ARCHIVE_ERROR = "বই সংরক্ষণাগারে পাঠানোর সময় সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।";
+
+/**
+ * Server Action for admins to publish any author's book.
+ * Strictly verifies requireAdmin() and preserves author ownership.
+ * Transitions DRAFT -> PUBLISHED only.
+ * Dispatches publication notifications only on first publication.
+ */
+export async function adminPublishBook(bookId: string): Promise<ActionResult> {
+  // 1. Authenticate + authorize as ADMIN
+  await requireAdmin();
+
+  // 2. Validate bookId format
+  if (!isValidObjectId(bookId)) {
+    return { success: false, error: "বৈধ বই আইডি নয়" };
+  }
+
+  try {
+    await dbConnect();
+
+    // 3. Fetch book
+    const book = await Book.findById(bookId).lean();
+    if (!book) {
+      return { success: false, error: "বইটি খুঁজে পাওয়া যায়নি" };
+    }
+
+    // 4. Status transition rules
+    if (book.status === "PUBLISHED") {
+      return { success: true, bookId, slug: book.slug };
+    }
+
+    if (book.status === "ARCHIVED") {
+      return { success: false, error: "সংরক্ষিত বই প্রকাশ করা সম্ভব নয়।" };
+    }
+
+    // 5. Validate publish requirements using BookPublishSchema
+    const publishCheck = BookPublishSchema.safeParse({
+      title: book.title,
+      slug: book.slug,
+      categoryId: String(book.category),
+      language: book.language ?? "বাংলা",
+      summary: book.summary ?? "",
+      description: book.description,
+      learningOutcomes: book.learningOutcomes ?? [],
+      price: book.price,
+      discountPrice: book.discountPrice,
+      coverImage: book.coverImage,
+      chapters: book.chapters ?? [],
+    });
+
+    if (!publishCheck.success) {
+      const fieldErrors = publishCheck.error.flatten().fieldErrors as Record<string, string[]>;
+      const firstError = firstFieldError(
+        fieldErrors,
+        publishCheck.error.flatten().formErrors[0] ??
+          "প্রকাশের জন্য প্রয়োজনীয় সকল তথ্য পূরণ থাকতে হবে।"
+      );
+      return { success: false, error: firstError, fieldErrors };
+    }
+
+    const categoryIsActive = await Category.exists({
+      _id: book.category,
+      status: "ACTIVE",
+    });
+    if (!categoryIsActive) {
+      return { success: false, error: "নির্বাচিত ক্যাটাগরি সক্রিয় নয়" };
+    }
+
+    // 6. Set firstPublishedAt only if not set, and atomically transition status
+    const isFirstPublication = !book.firstPublishedAt;
+    const updateSet: Record<string, unknown> = {
+      status: "PUBLISHED",
+    };
+    if (isFirstPublication) {
+      updateSet.firstPublishedAt = new Date();
+    }
+
+    const publishResult = await Book.updateOne(
+      { _id: bookId, status: "DRAFT" },
+      { $set: updateSet }
+    );
+
+    if (publishResult.matchedCount === 0) {
+      return {
+        success: false,
+        error: "বইয়ের স্ট্যাটাস পরিবর্তিত হয়েছে। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।",
+      };
+    }
+
+    // 7. Send notifications only on first publication, resolving the real author's user account
+    if (publishResult.modifiedCount === 1 && isFirstPublication) {
+      try {
+        const authorDoc = await Author.findById(book.author)
+          .select("user penName")
+          .lean();
+
+        let authorName = authorDoc?.penName || "লেখক";
+        let authorEmail: string | undefined;
+
+        if (authorDoc?.user) {
+          const userDoc = await User.findById(authorDoc.user)
+            .select("email name")
+            .lean();
+          if (userDoc) {
+            authorEmail = userDoc.email?.trim().toLowerCase();
+            if (!authorDoc.penName && userDoc.name) {
+              authorName = userDoc.name;
+            }
+          }
+        }
+
+        const notifications: Promise<unknown>[] = [
+          sendAdminBookPublishedEmail({
+            bookId: String(book._id),
+            bookTitle: book.title,
+            bookSlug: book.slug,
+            authorName,
+            price: book.price,
+            currency: book.currency || "BDT",
+          }),
+        ];
+
+        if (authorEmail) {
+          notifications.push(
+            sendAuthorBookPublishedEmail({
+              recipientEmail: authorEmail,
+              recipientName: authorName,
+              bookTitle: book.title,
+              bookSlug: book.slug,
+            })
+          );
+        } else {
+          console.warn(
+            "[adminPublishBook] Skipped author confirmation email: No verified user email found for author."
+          );
+        }
+
+        await Promise.allSettled(notifications);
+      } catch (notifyErr) {
+        console.error(
+          "[adminPublishBook] Non-fatal notification error:",
+          notifyErr instanceof Error ? notifyErr.message : "Unknown notification error"
+        );
+      }
+    }
+
+    // 8. Revalidate affected paths
+    revalidatePath("/admin/books");
+    revalidatePath(`/admin/books/${bookId}/edit`);
+    revalidatePath("/books");
+    revalidatePath(`/books/${book.slug}`);
+    revalidatePath("/author");
+
+    return { success: true, bookId, slug: book.slug };
+  } catch (error) {
+    console.error("adminPublishBook error:", error);
+    return { success: false, error: GENERIC_PUBLISH_ERROR };
+  }
+}
+
+/**
+ * Server Action for admins to unpublish any author's book (PUBLISHED -> DRAFT).
+ * Strictly verifies requireAdmin() and preserves author ownership and firstPublishedAt.
+ */
+export async function adminUnpublishBook(bookId: string): Promise<ActionResult> {
+  // 1. Authenticate + authorize as ADMIN
+  await requireAdmin();
+
+  // 2. Validate bookId format
+  if (!isValidObjectId(bookId)) {
+    return { success: false, error: "বৈধ বই আইডি নয়" };
+  }
+
+  try {
+    await dbConnect();
+
+    // 3. Check existing book
+    const book = await Book.findById(bookId).select("_id slug status").lean();
+    if (!book) {
+      return { success: false, error: "বইটি খুঁজে পাওয়া যায়নি" };
+    }
+
+    // 4. Status transition rules
+    if (book.status === "DRAFT") {
+      return { success: true, bookId, slug: book.slug };
+    }
+
+    if (book.status === "ARCHIVED") {
+      return { success: false, error: "সংরক্ষিত বই অপ্রকাশিত করা সম্ভব নয়।" };
+    }
+
+    // 5. Atomic status update
+    const unpublishResult = await Book.updateOne(
+      { _id: bookId, status: "PUBLISHED" },
+      { $set: { status: "DRAFT" } }
+    );
+
+    if (unpublishResult.matchedCount === 0) {
+      return {
+        success: false,
+        error: "বইয়ের স্ট্যাটাস পরিবর্তিত হয়েছে। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।",
+      };
+    }
+
+    // 6. Revalidate affected paths
+    revalidatePath("/admin/books");
+    revalidatePath(`/admin/books/${bookId}/edit`);
+    revalidatePath("/books");
+    revalidatePath(`/books/${book.slug}`);
+    revalidatePath("/author");
+
+    return { success: true, bookId, slug: book.slug };
+  } catch (error) {
+    console.error("adminUnpublishBook error:", error);
+    return { success: false, error: GENERIC_UNPUBLISH_ERROR };
+  }
+}
+
+/**
+ * Server Action for admins to archive any author's book (DRAFT/PUBLISHED -> ARCHIVED).
+ * Strictly verifies requireAdmin() and preserves author ownership and firstPublishedAt.
+ */
+export async function adminArchiveBook(bookId: string): Promise<ActionResult> {
+  // 1. Authenticate + authorize as ADMIN
+  await requireAdmin();
+
+  // 2. Validate bookId format
+  if (!isValidObjectId(bookId)) {
+    return { success: false, error: "বৈধ বই আইডি নয়" };
+  }
+
+  try {
+    await dbConnect();
+
+    // 3. Check existing book
+    const book = await Book.findById(bookId).select("_id slug status").lean();
+    if (!book) {
+      return { success: false, error: "বইটি খুঁজে পাওয়া যায়নি" };
+    }
+
+    // 4. Status transition rules
+    if (book.status === "ARCHIVED") {
+      return { success: true, bookId, slug: book.slug };
+    }
+
+    // 5. Atomic status update
+    const archiveResult = await Book.updateOne(
+      { _id: bookId, status: { $in: ["DRAFT", "PUBLISHED"] } },
+      { $set: { status: "ARCHIVED" } }
+    );
+
+    if (archiveResult.matchedCount === 0) {
+      return {
+        success: false,
+        error: "বইয়ের স্ট্যাটাস পরিবর্তিত হয়েছে। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।",
+      };
+    }
+
+    // 6. Revalidate affected paths
+    revalidatePath("/admin/books");
+    revalidatePath(`/admin/books/${bookId}/edit`);
+    revalidatePath("/books");
+    revalidatePath(`/books/${book.slug}`);
+    revalidatePath("/author");
+
+    return { success: true, bookId, slug: book.slug };
+  } catch (error) {
+    console.error("adminArchiveBook error:", error);
+    return { success: false, error: GENERIC_ARCHIVE_ERROR };
   }
 }

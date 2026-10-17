@@ -467,9 +467,15 @@ export async function publishBook(bookId: string): Promise<ActionResult> {
     }
 
     // 6. Set status to PUBLISHED
+    const isFirstPublication = !book.firstPublishedAt;
+    const updateSet: Record<string, unknown> = { status: "PUBLISHED" };
+    if (isFirstPublication) {
+      updateSet.firstPublishedAt = new Date();
+    }
+
     const publishResult = await Book.updateOne(
       { _id: bookId, author: authorId, status: "DRAFT" },
-      { $set: { status: "PUBLISHED" } }
+      { $set: updateSet }
     );
 
     if (publishResult.matchedCount === 0) {
@@ -479,7 +485,7 @@ export async function publishBook(bookId: string): Promise<ActionResult> {
       };
     }
 
-    if (publishResult.modifiedCount === 1) {
+    if (publishResult.modifiedCount === 1 && isFirstPublication) {
       try {
         const [authorDoc, userDoc] = await Promise.all([
           Author.findById(authorId).select("penName").lean(),
