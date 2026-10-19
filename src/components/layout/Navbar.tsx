@@ -1,15 +1,9 @@
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/session";
 import { MobileMenu } from "@/components/layout/MobileMenu";
+import { DesktopNav } from "@/components/layout/DesktopNav";
 import { signOut } from "@/lib/auth/auth";
 import { getWriteNavHref, getProfileNavHref } from "@/lib/auth/navigation";
-
-const NAV_LINKS = [
-  { href: "/", label: "Home" },
-  { href: "/books", label: "Books" },
-  { href: "/authors", label: "Authors" },
-  { href: "/about", label: "About" },
-];
 
 export async function Navbar() {
   const user = await getCurrentUser();
@@ -40,32 +34,7 @@ export async function Navbar() {
         </Link>
 
         {/* Desktop navigation */}
-        <nav aria-label="Main navigation" className="hidden md:block">
-          <ul className="flex items-center gap-1">
-            {NAV_LINKS.map((link) => (
-              <li key={link.href}>
-                <Link
-                  href={link.href}
-                  className="rounded-md px-3.5 py-2 text-sm font-medium text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  {link.label}
-                </Link>
-              </li>
-            ))}
-            <li>
-              <Link
-                href={writeHref}
-                id="nav-write-link"
-                data-testid="nav-write-link"
-                aria-label="লিখুন"
-                className="rounded-md px-3.5 py-2 text-sm font-medium text-foreground/70 transition-colors hover:bg-muted hover:text-foreground font-[family-name:var(--font-bengali)]"
-              >
-                লিখুন
-                <span className="sr-only">Write</span>
-              </Link>
-            </li>
-          </ul>
-        </nav>
+        <DesktopNav writeHref={writeHref} />
 
         {/* Desktop auth controls */}
         <div className="hidden items-center gap-2 md:flex">

@@ -7,11 +7,11 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
-  /* Bengali serif — Noto Serif Bengali, self-hosted via next/font */
-  --font-bengali: var(--font-bengali);
+  --font-sans: var(--font-inter), var(--font-bengali), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-heading: var(--font-inter), var(--font-bengali), system-ui, sans-serif;
+  /* Bengali sans — Hind Siliguri, self-hosted via next/font */
+  --font-bengali: var(--font-bengali), var(--font-inter), sans-serif;
   /* Brand accent — warm amber for a literary/book feel */
   --color-brand: var(--brand);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -128,11 +128,18 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
   html {
-    @apply font-sans;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-background text-foreground text-[15px] sm:text-base leading-relaxed;
+    font-family: var(--font-sans);
+  }
+  h1, h2, h3, h4, h5, h6 {
+    letter-spacing: -0.015em;
   }
 }
 

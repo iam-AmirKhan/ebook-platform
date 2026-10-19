@@ -37,17 +37,17 @@ async function runTestSuite() {
   const mobileMenuSource = fs.readFileSync(path.resolve("src/components/layout/MobileMenu.tsx"), "utf-8");
   const footerSource = fs.readFileSync(path.resolve("src/components/layout/Footer.tsx"), "utf-8");
 
-  // Verify Navbar
-  assert.ok(navbarSource.includes('{ href: "/authors", label: "Authors" }'), "Navbar must include Authors link");
-  assert.ok(!navbarSource.includes('{ href: "/categories", label: "Categories" }'), "Navbar must not have Categories link");
-  assert.ok(navbarSource.includes('{ href: "/", label: "Home" }'), "Navbar must retain Home");
-  assert.ok(navbarSource.includes('{ href: "/books", label: "Books" }'), "Navbar must retain Books");
-  console.log("✔ 1.1 Navbar has Home, Books, Authors (pointing to /authors), Categories removed");
+  // Verify Navbar & DesktopNav
+  const desktopNavSource = fs.readFileSync(path.resolve("src/components/layout/DesktopNav.tsx"), "utf-8");
+  assert.ok(navbarSource.includes("<DesktopNav"), "Navbar must render DesktopNav");
+  assert.ok(desktopNavSource.includes("MAIN_NAV_LINKS"), "DesktopNav must use MAIN_NAV_LINKS");
+  assert.ok(!navbarSource.includes('{ href: "/categories"'), "Navbar must not have Categories link");
+  console.log("✔ 1.1 Navbar renders DesktopNav with Home, Books, Authors, About and Categories removed");
 
   // Verify MobileMenu
-  assert.ok(mobileMenuSource.includes('{ href: "/authors", label: "Authors" }'), "MobileMenu must include Authors link");
-  assert.ok(!mobileMenuSource.includes('{ href: "/categories", label: "Categories" }'), "MobileMenu must not have Categories link");
-  console.log("✔ 1.2 MobileMenu has Home, Books, Authors (pointing to /authors)");
+  assert.ok(mobileMenuSource.includes("MAIN_NAV_LINKS"), "MobileMenu must use MAIN_NAV_LINKS");
+  assert.ok(!mobileMenuSource.includes('{ href: "/categories"'), "MobileMenu must not have Categories link");
+  console.log("✔ 1.2 MobileMenu uses MAIN_NAV_LINKS (Home, Books, Authors, About)");
 
   // Verify Footer
   assert.ok(footerSource.includes('{ href: "/authors", label: "Authors" }'), "Footer must include Authors link");

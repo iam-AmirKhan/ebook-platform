@@ -41,3 +41,29 @@ export function getWriteNavHref(role?: string | null): string {
 export function getProfileNavHref(): string {
   return "/account";
 }
+
+/**
+ * Public main navigation links shared across desktop and mobile menus.
+ */
+export const MAIN_NAV_LINKS = [
+  { href: "/", label: "Home" },
+  { href: "/books", label: "Books" },
+  { href: "/authors", label: "Authors" },
+  { href: "/about", label: "About" },
+] as const;
+
+/**
+ * Determines whether a given navigation item is active for the current pathname.
+ * - "/" matches only the exact homepage ("/").
+ * - Other routes (e.g. "/books", "/authors", "/about") match their exact path
+ *   and nested sub-paths (e.g. "/books/my-book-slug" or "/authors/john-doe").
+ */
+export function isRouteActive(href: string, pathname: string): boolean {
+  if (!pathname) return false;
+  // Normalize pathname by removing trailing slash if not root
+  const cleanPath = pathname !== "/" && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+  if (href === "/") {
+    return cleanPath === "/";
+  }
+  return cleanPath === href || cleanPath.startsWith(`${href}/`);
+}
