@@ -10,7 +10,7 @@
 
 import { useActionState, useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { generateSlug } from "@/validators/book";
+import { generateSlug, countSubstantiveChapters } from "@/validators/book";
 import type { ActionResult, BookFormData, CategoryOption, ChapterFormData } from "@/types/author";
 
 // ---------------------------------------------------------------------------
@@ -452,15 +452,20 @@ export function BookForm({
                 id="price"
                 name="price"
                 type="number"
-                min={0}
+                min={100}
+                max={300}
                 step={1}
-                defaultValue={defaultValues?.price ?? 0}
-                className={`${inputClass} pl-7`}
-                placeholder="০"
+                defaultValue={defaultValues?.price ? Math.max(100, defaultValues.price) : 100}
+                className={`${inputClass} pl-7 font-[family-name:var(--font-bengali)]`}
+                placeholder="১০০"
+                aria-describedby={state.fieldErrors?.price ? "price-error" : "price-hint"}
               />
             </div>
+            <p id="price-hint" className="mt-1 text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
+              বইয়ের অনুমোদিত মূল্য ৳১০০ থেকে ৳৩০০ (ন্যূনতম ৳১০০, সর্বোচ্চ ৳৩০০)।
+            </p>
             {state.fieldErrors?.price && (
-              <p className="mt-1 text-xs text-destructive font-[family-name:var(--font-bengali)]">
+              <p id="price-error" className="mt-1 text-xs text-destructive font-[family-name:var(--font-bengali)]">
                 {state.fieldErrors.price[0]}
               </p>
             )}
@@ -499,13 +504,18 @@ export function BookForm({
 
       {/* ── Section 4: Chapters ── */}
       <section className={sectionClass} aria-labelledby="chapters-heading">
-        <div className="flex items-center justify-between">
-          <h2
-            id="chapters-heading"
-            className="text-base font-semibold text-foreground font-[family-name:var(--font-bengali)]"
-          >
-            অধ্যায়সমূহ ({chapters.length})
-          </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2
+              id="chapters-heading"
+              className="text-base font-semibold text-foreground font-[family-name:var(--font-bengali)]"
+            >
+              অধ্যায়সমূহ ({chapters.length})
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
+              বই প্রকাশের জন্য কমপক্ষে ৫টি পূর্ণাঙ্গ অধ্যায় আবশ্যক (বর্তমান পূর্ণাঙ্গ: {countSubstantiveChapters(chapters)}টি)
+            </p>
+          </div>
           <button
             type="button"
             onClick={addChapter}
@@ -514,6 +524,12 @@ export function BookForm({
             + অধ্যায় যোগ করুন
           </button>
         </div>
+
+        {countSubstantiveChapters(chapters) < 5 && (
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-200 font-[family-name:var(--font-bengali)]">
+            বই প্রকাশের জন্য কমপক্ষে ৫টি পূর্ণাঙ্গ ও অর্থপূর্ণ অধ্যায় (প্রতিটিতে অন্তত ৫০ অক্ষর) প্রয়োজন। বর্তমানে {countSubstantiveChapters(chapters)}টি পূর্ণাঙ্গ অধ্যায় রয়েছে।
+          </div>
+        )}
 
         {chapters.length === 0 && (
           <p className="py-4 text-center text-sm text-muted-foreground font-[family-name:var(--font-bengali)]">

@@ -51,7 +51,7 @@ export default async function NewBookPage() {
       <BookForm
         action={createBookAndRedirect}
         categories={categories}
-        defaultValues={{ language: "বাংলা", price: 0 }}
+        defaultValues={{ language: "বাংলা", price: 100 }}
       />
     </div>
   );

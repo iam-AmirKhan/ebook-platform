@@ -105,6 +105,13 @@ export async function Navbar() {
           ) : (
             <>
               <Link
+                href="/become-author"
+                id="nav-become-author-link"
+                className="flex h-8 items-center rounded-md px-3 text-sm font-medium text-foreground/70 transition-colors hover:bg-muted hover:text-foreground font-[family-name:var(--font-bengali)]"
+              >
+                লেখক হোন
+              </Link>
+              <Link
                 href="/login"
                 id="nav-login-link"
                 className="flex h-8 items-center rounded-md px-3 text-sm font-medium text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"

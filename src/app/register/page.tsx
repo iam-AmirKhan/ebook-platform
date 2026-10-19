@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -20,9 +20,11 @@ const FormSchema = RegisterSchema.extend({
 
 type FormValues = z.infer<typeof FormSchema>;
 
-export default function RegisterPage() {
+function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [serverError, setServerError] = useState<string | null>(null);
+  const callbackUrl = searchParams.get("callbackUrl");
 
   const {
     register,
@@ -42,17 +44,24 @@ export default function RegisterPage() {
     setServerError(null);
     try {
       // Remove confirmPassword before sending to server action
-      const { confirmPassword: _, ...registerInput } = data;
+      const registerInput = {
+        name: data.name,
+        email: data.email,
+        password: data.password,
+      };
       
       const result = await registerUser(registerInput);
       
       if (result.success) {
-        // Success! Redirect to login.
-        router.push("/login?registered=true");
+        // Success! Redirect to login with callbackUrl if present.
+        const dest = callbackUrl
+          ? `/login?registered=true&callbackUrl=${encodeURIComponent(callbackUrl)}`
+          : "/login?registered=true";
+        router.push(dest);
       } else {
         setServerError(result.error || "Registration failed. Please try again.");
       }
-    } catch (_error) {
+    } catch {
       setServerError("An unexpected error occurred. Please try again.");
     }
   };
@@ -141,11 +150,32 @@ export default function RegisterPage() {
 
         <div className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
           Already have an account?{" "}
-          <Link href="/login" className="font-semibold text-gray-900 hover:underline dark:text-white">
+          <Link
+            href={
+              callbackUrl
+                ? `/login?callbackUrl=${encodeURIComponent(callbackUrl)}`
+                : "/login"
+            }
+            className="font-semibold text-gray-900 hover:underline dark:text-white"
+          >
             Sign in
           </Link>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center">
+          Loading...
+        </div>
+      }
+    >
+      <RegisterForm />
+    </Suspense>
   );
 }

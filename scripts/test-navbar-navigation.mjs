@@ -9,33 +9,33 @@ import {
 function runTests() {
   console.log("=== RUNNING NAVBAR ROLE-BASED NAVIGATION TESTS ===\n");
 
-  // 1. Test "লিখুন" (Write) for ADMIN
+  // 1. Test "বই লিখুন" for ADMIN
   const adminWriteHref = getWriteNavHref("ADMIN");
-  console.log(`[TEST] ADMIN -> 'লিখুন' href: ${adminWriteHref}`);
-  assert.strictEqual(adminWriteHref, "/admin", "ADMIN should navigate to /admin");
+  console.log(`[TEST] ADMIN -> 'বই লিখুন' href: ${adminWriteHref}`);
+  assert.strictEqual(adminWriteHref, "/admin/books", "ADMIN should navigate to /admin/books");
 
-  // 2. Test "লিখুন" (Write) for AUTHOR
+  // 2. Test "বই লিখুন" for AUTHOR
   const authorWriteHref = getWriteNavHref("AUTHOR");
-  console.log(`[TEST] AUTHOR -> 'লিখুন' href: ${authorWriteHref}`);
-  assert.strictEqual(authorWriteHref, "/author", "AUTHOR should navigate to /author");
+  console.log(`[TEST] AUTHOR -> 'বই লিখুন' href: ${authorWriteHref}`);
+  assert.strictEqual(authorWriteHref, "/author/books/new", "AUTHOR should navigate to /author/books/new");
 
-  // 3. Test "লিখুন" (Write) for USER
+  // 3. Test "বই লিখুন" for USER
   const userWriteHref = getWriteNavHref("USER");
-  console.log(`[TEST] USER -> 'লিখুন' href: ${userWriteHref}`);
-  assert.strictEqual(userWriteHref, "/become-author", "USER should navigate to /become-author");
+  console.log(`[TEST] USER -> 'বই লিখুন' href: ${userWriteHref}`);
+  assert.strictEqual(userWriteHref, "/publishing-policy", "USER should navigate to /publishing-policy");
 
-  // 4. Test "লিখুন" (Write) for Unauthenticated Visitor (null / undefined / empty)
+  // 4. Test "বই লিখুন" for Unauthenticated Visitor (null / undefined / empty)
   const unauthNullWriteHref = getWriteNavHref(null);
-  console.log(`[TEST] Unauthenticated (null) -> 'লিখুন' href: ${unauthNullWriteHref}`);
-  assert.strictEqual(unauthNullWriteHref, "/login", "Unauthenticated visitor (null) should navigate to /login");
+  console.log(`[TEST] Unauthenticated (null) -> 'বই লিখুন' href: ${unauthNullWriteHref}`);
+  assert.strictEqual(unauthNullWriteHref, "/publishing-policy", "Unauthenticated visitor (null) should navigate to /publishing-policy");
 
   const unauthUndefinedWriteHref = getWriteNavHref(undefined);
-  console.log(`[TEST] Unauthenticated (undefined) -> 'লিখুন' href: ${unauthUndefinedWriteHref}`);
-  assert.strictEqual(unauthUndefinedWriteHref, "/login", "Unauthenticated visitor (undefined) should navigate to /login");
+  console.log(`[TEST] Unauthenticated (undefined) -> 'বই লিখুন' href: ${unauthUndefinedWriteHref}`);
+  assert.strictEqual(unauthUndefinedWriteHref, "/publishing-policy", "Unauthenticated visitor (undefined) should navigate to /publishing-policy");
 
   const unauthEmptyWriteHref = getWriteNavHref("");
-  console.log(`[TEST] Unauthenticated ('') -> 'লিখুন' href: ${unauthEmptyWriteHref}`);
-  assert.strictEqual(unauthEmptyWriteHref, "/login", "Unauthenticated visitor ('') should navigate to /login");
+  console.log(`[TEST] Unauthenticated ('') -> 'বই লিখুন' href: ${unauthEmptyWriteHref}`);
+  assert.strictEqual(unauthEmptyWriteHref, "/publishing-policy", "Unauthenticated visitor ('') should navigate to /publishing-policy");
 
   // 5. Test "Profile" Navigation
   const profileHref = getProfileNavHref();
@@ -43,10 +43,10 @@ function runTests() {
   assert.strictEqual(profileHref, "/account", "Profile should navigate to logged-in user's /account page");
   assert.notStrictEqual(profileHref, "/admin", "Profile must NEVER navigate to /admin");
 
-  // 6. Test that invalid role does not default to ADMIN
+  // 6. Test that invalid role does not default to ADMIN or AUTHOR
   const unknownRoleWriteHref = getWriteNavHref("UNKNOWN_ROLE");
-  console.log(`[TEST] Unknown role -> 'লিখুন' href: ${unknownRoleWriteHref}`);
-  assert.strictEqual(unknownRoleWriteHref, "/login", "Unknown role must not default to ADMIN or author; should go to /login");
+  console.log(`[TEST] Unknown role -> 'বই লিখুন' href: ${unknownRoleWriteHref}`);
+  assert.strictEqual(unknownRoleWriteHref, "/publishing-policy", "Unknown role must not default to ADMIN or AUTHOR; should go to /publishing-policy");
 
   // 7. Test MAIN_NAV_LINKS structure
   assert.deepStrictEqual(

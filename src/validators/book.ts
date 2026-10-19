@@ -38,6 +38,90 @@ export const ChapterSchema = z.object({
 export type ChapterInput = z.infer<typeof ChapterSchema>;
 
 // ---------------------------------------------------------------------------
+// Substantive chapter validation helpers
+// ---------------------------------------------------------------------------
+
+const TITLE_PLACEHOLDER_PATTERNS = [
+  /^coming soon$/i,
+  /^placeholder(\s*text)?$/i,
+  /^lorem ipsum/i,
+  /^tbd$/i,
+  /^to be determined$/i,
+  /^test$/i,
+  /^sample(\s*text)?$/i,
+  /^শীঘ্রই আসছে$/i,
+  /^খালি$/i,
+  /^খসড়া$/i,
+  /^অধ্যায়\s*\d*$/i,
+  /^chapter\s*\d*$/i,
+  /^untitled(\s*chapter)?$/i,
+  /^শিরোনামহীন$/i,
+];
+
+const CONTENT_PLACEHOLDER_PATTERNS = [
+  /coming soon/i,
+  /placeholder/i,
+  /lorem ipsum/i,
+  /\btbd\b/i,
+  /শীঘ্রই আসছে/i,
+  /খসড়া মাত্র/i,
+  /to be determined/i,
+  /sample text/i,
+];
+
+/**
+ * Checks whether a chapter is substantive:
+ * 1. Has non-empty title (at least 2 chars).
+ * 2. Has substantive body content (at least 50 chars of meaningful text).
+ * 3. Does not match placeholder phrases or empty chapter markers.
+ * 4. Is not just repeated identical words.
+ */
+export function isSubstantiveChapter(chapter?: {
+  title?: string | null;
+  content?: string | null;
+} | null): boolean {
+  if (!chapter) return false;
+  const title = (chapter.title ?? "").trim();
+  const content = (chapter.content ?? "").trim();
+
+  if (title.length < 2) return false;
+  if (content.length < 50) return false;
+
+  for (const pattern of TITLE_PLACEHOLDER_PATTERNS) {
+    if (pattern.test(title)) {
+      return false;
+    }
+  }
+
+  for (const pattern of CONTENT_PLACEHOLDER_PATTERNS) {
+    if (pattern.test(content)) {
+      return false;
+    }
+  }
+
+  // Check for repeated spam words (e.g. "খসড়া খসড়া..." or "test test test...")
+  const words = content.split(/\s+/).filter(Boolean);
+  if (words.length >= 6) {
+    const uniqueWords = new Set(words.map((w) => w.toLowerCase()));
+    if (uniqueWords.size < 3) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Counts the number of substantive chapters in a chapters array.
+ */
+export function countSubstantiveChapters(
+  chapters?: Array<{ title?: string | null; content?: string | null }> | null
+): number {
+  if (!chapters || !Array.isArray(chapters)) return 0;
+  return chapters.filter(isSubstantiveChapter).length;
+}
+
+// ---------------------------------------------------------------------------
 // Book create/update schema
 // ---------------------------------------------------------------------------
 
@@ -125,7 +209,13 @@ const discountValidation = {
   path: ["discountPrice"],
 };
 
-export const BookCreateSchema = BasBookSchema.refine(hasValidDiscount, discountValidation);
+export const BookCreateSchema = BasBookSchema.extend({
+  price: z
+    .number()
+    .finite("বৈধ মূল্য দিন")
+    .min(100, "বইয়ের মূল্য সর্বনিম্ন ১০০ টাকা হতে হবে (ন্যূনতম ৳১০০)")
+    .max(300, "বইয়ের মূল্য সর্বোচ্চ ৩০০ টাকা হতে হবে (সর্বোচ্চ ৳৩০০)"),
+}).refine(hasValidDiscount, discountValidation);
 
 export const BookUpdateSchema = BasBookSchema.refine(hasValidDiscount, discountValidation);
 
@@ -144,11 +234,12 @@ export const BookPublishSchema = BasBookSchema.extend({
     .min(10, "প্রকাশের আগে কমপক্ষে ১০ অক্ষরের বিবরণ দিন"),
   price: z
     .number()
-    .finite("Invalid price")
-    .min(0, "মূল্য দিন"),
+    .finite("বৈধ মূল্য দিন")
+    .min(100, "বইয়ের মূল্য সর্বনিম্ন ১০০ টাকা হতে হবে (ন্যূনতম ৳১০০)")
+    .max(300, "বইয়ের মূল্য সর্বোচ্চ ৩০০ টাকা হতে হবে (সর্বোচ্চ ৳৩০০)"),
 })
   .refine(hasValidDiscount, discountValidation)
-  .refine((data) => data.chapters.length > 0, {
-    message: "প্রকাশের আগে কমপক্ষে একটি অধ্যায় যোগ করুন",
+  .refine((data) => countSubstantiveChapters(data.chapters) >= 5, {
+    message: "বই প্রকাশের জন্য কমপক্ষে ৫টি পূর্ণাঙ্গ ও অর্থপূর্ণ অধ্যায় থাকা আবশ্যক (খালি বা প্লেসহোল্ডার অধ্যায় গ্রহণযোগ্য নয়)।",
     path: ["chapters"],
   });

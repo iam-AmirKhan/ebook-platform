@@ -191,19 +191,35 @@ export function MobileMenu({
               })}
 
               {/* Write Link */}
-              <li>
-                <Link
-                  href={writeHref}
-                  id="mobile-nav-write-link"
-                  data-testid="mobile-nav-write-link"
-                  aria-label="লিখুন"
-                  onClick={() => setIsOpen(false)}
-                  className="flex items-center rounded-lg px-3.5 py-2.5 text-sm font-medium text-foreground/80 transition-colors hover:bg-muted hover:text-foreground font-[family-name:var(--font-bengali)]"
-                >
-                  লিখুন
-                  <span className="sr-only">Write</span>
-                </Link>
-              </li>
+              {(() => {
+                const isWriteActive = isRouteActive(writeHref, pathname);
+                return (
+                  <li>
+                    <Link
+                      href={writeHref}
+                      id="mobile-nav-write-link"
+                      data-testid="mobile-nav-write-link"
+                      aria-label="বই লিখুন"
+                      aria-current={isWriteActive ? "page" : undefined}
+                      onClick={() => setIsOpen(false)}
+                      className={`relative flex items-center justify-between rounded-lg px-3.5 py-2.5 text-sm font-medium transition-colors font-[family-name:var(--font-bengali)] ${
+                        isWriteActive
+                          ? "bg-brand/10 text-brand font-semibold"
+                          : "text-foreground/80 hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      <span>বই লিখুন</span>
+                      {isWriteActive && (
+                        <span
+                          className="absolute inset-x-3.5 bottom-0 h-0.5 rounded-full bg-brand"
+                          aria-hidden="true"
+                        />
+                      )}
+                      <span className="sr-only">বই লিখুন</span>
+                    </Link>
+                  </li>
+                );
+              })()}
             </ul>
           </nav>
 
@@ -272,6 +288,13 @@ export function MobileMenu({
               </div>
             ) : (
               <div className="space-y-2.5">
+                <Link
+                  href="/become-author"
+                  onClick={() => setIsOpen(false)}
+                  className="flex h-10 w-full items-center justify-center rounded-lg border border-border px-4 text-sm font-semibold text-foreground transition-colors hover:bg-muted font-[family-name:var(--font-bengali)]"
+                >
+                  লেখক হোন
+                </Link>
                 <Link
                   href="/login"
                   onClick={() => setIsOpen(false)}

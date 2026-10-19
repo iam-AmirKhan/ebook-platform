@@ -57,6 +57,8 @@ function LoginForm() {
 
   const onSubmit = async (data: FormValues) => {
     setServerError(null);
+    const callbackUrl = searchParams.get("callbackUrl") || "/";
+
     try {
       const result = await signIn("credentials", {
         redirect: false,
@@ -67,7 +69,7 @@ function LoginForm() {
       if (result?.error) {
         setServerError("Invalid email or password, or account is disabled.");
       } else if (result?.ok) {
-        router.push("/");
+        router.push(callbackUrl);
         router.refresh();
       }
     } catch {
@@ -78,8 +80,9 @@ function LoginForm() {
   const handleGoogleSignIn = async () => {
     setServerError(null);
     setIsGoogleLoading(true);
+    const callbackUrl = searchParams.get("callbackUrl") || "/";
     try {
-      await signIn("google", { callbackUrl: "/" });
+      await signIn("google", { callbackUrl });
     } catch {
       setServerError("Failed to initiate Google sign in. Please try again.");
       setIsGoogleLoading(false);
@@ -188,8 +191,16 @@ function LoginForm() {
         </form>
 
         <div className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
-          Don&apos;t have an account?{" "}
-          <Link href="/register" className="font-semibold text-gray-900 hover:underline dark:text-white">
+          <Link
+            href={
+              searchParams.get("callbackUrl")
+                ? `/register?callbackUrl=${encodeURIComponent(
+                    searchParams.get("callbackUrl") || ""
+                  )}`
+                : "/register"
+            }
+            className="font-semibold text-gray-900 hover:underline dark:text-white"
+          >
             Create account
           </Link>
         </div>
