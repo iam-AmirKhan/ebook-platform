@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 const FOOTER_LINKS = {
   Explore: [
     { href: "/books", label: "Browse Books" },
-    { href: "/categories", label: "Categories" },
+    { href: "/authors", label: "Authors" },
     { href: "/about", label: "About Us" },
   ],
   Account: [

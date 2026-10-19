@@ -10,6 +10,9 @@ import {
 import { BookGrid } from "@/components/books/BookGrid";
 import { ReviewsList } from "@/components/books/ReviewsList";
 import { ChapterList } from "@/components/books/ChapterList";
+import dbConnect from "@/lib/db/mongoose";
+import Order from "@/models/Order";
+import { Types } from "mongoose";
 
 interface BookPageProps {
   params: Promise<{ slug: string }>;
@@ -56,6 +59,18 @@ export default async function BookPage({ params }: BookPageProps) {
   const isOwned =
     !!user &&
     book.chapters.some((ch) => !ch.isPreview && ch.content !== null);
+
+  let pendingOrder: { _id: unknown } | null = null;
+  if (user?.id && !isOwned) {
+    await dbConnect();
+    pendingOrder = await Order.findOne({
+      user: new Types.ObjectId(user.id),
+      "items.book": new Types.ObjectId(book._id),
+      status: "PENDING",
+    })
+      .select("_id")
+      .lean();
+  }
 
   const hasDiscount =
     book.discountPrice !== null && book.discountPrice < book.price;
@@ -143,9 +158,12 @@ export default async function BookPage({ params }: BookPageProps) {
 
               <p className="mt-3 text-[1.0625rem] text-muted-foreground">
                 লেখক:{" "}
-                <span className="font-semibold text-foreground font-[family-name:var(--font-bengali)]">
+                <Link
+                  href={`/authors/${book.author.slug}`}
+                  className="font-semibold text-foreground transition-colors hover:text-brand hover:underline font-[family-name:var(--font-bengali)]"
+                >
                   {book.author.penName}
-                </span>
+                </Link>
               </p>
 
               {/* Summary — 17px, generous line-height */}
@@ -203,13 +221,29 @@ export default async function BookPage({ params }: BookPageProps) {
                       বিনামূল্যে একাউন্ট তৈরি করুন এবং আপনার লাইব্রেরি ট্র্যাক করুন।
                     </p>
                   </div>
+                ) : pendingOrder ? (
+                  <div className="flex flex-col gap-2.5">
+                    <Link
+                      href="/account"
+                      className="inline-flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-5 py-3 text-sm font-semibold text-amber-700 dark:text-amber-400 font-[family-name:var(--font-bengali)] transition-colors hover:bg-amber-500/20"
+                    >
+                      <span className="size-2 rounded-full bg-amber-500 animate-pulse" />
+                      অর্ডার যাচাইাধীন (#{String(pendingOrder._id).slice(-6).toUpperCase()}) — বিস্তারিত দেখুন
+                    </Link>
+                    <p className="text-[0.8125rem] text-muted-foreground font-[family-name:var(--font-bengali)]">
+                      আপনার পেমেন্ট তথ্য পর্যালোচনা করা হচ্ছে। অ্যাডমিন অনুমোদনের পর বইটি উন্মুক্ত হবে।
+                    </p>
+                  </div>
                 ) : (
                   <div className="flex flex-col gap-2.5">
-                    <div className="inline-flex h-12 w-fit items-center justify-center rounded-lg bg-foreground/10 px-8 text-[1rem] font-semibold text-foreground/50 cursor-not-allowed select-none">
-                      {book.currency} {displayPrice.toLocaleString()} — শীঘ্রই পাওয়া যাবে
-                    </div>
+                    <Link
+                      href={`/checkout/${book.slug}`}
+                      className="inline-flex h-12 w-fit items-center justify-center rounded-lg bg-foreground px-8 text-[1rem] font-semibold text-background transition-all hover:bg-foreground/90 hover:shadow-lg font-[family-name:var(--font-bengali)]"
+                    >
+                      বইটি কিনুন — {book.currency} {displayPrice.toLocaleString()}
+                    </Link>
                     <p className="text-[0.8125rem] text-muted-foreground font-[family-name:var(--font-bengali)]">
-                      এখনও পেমেন্ট চালু হয়নি। বিনামূল্যের অধ্যায়গুলো নিচে পড়া যাবে।
+                      সহজ ও নিরাপদ bKash / Nagad ম্যানুয়াল পেমেন্টের মাধ্যমে বইটি সংগ্রহ করুন।
                     </p>
                   </div>
                 )}

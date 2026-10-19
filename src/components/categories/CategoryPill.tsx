@@ -8,7 +8,7 @@ interface CategoryPillProps {
 export function CategoryPill({ category }: CategoryPillProps) {
   return (
     <Link
-      href={`/categories/${category.slug}`}
+      href={`/books?category=${category.slug}`}
       className="group flex items-center gap-2 rounded-full border border-border/70 bg-card px-4 py-2 text-sm font-medium text-foreground/80 transition-all duration-150 hover:border-brand/50 hover:bg-brand/5 hover:text-brand"
     >
       {category.image ? (

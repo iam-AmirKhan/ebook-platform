@@ -7,7 +7,7 @@ import { getWriteNavHref, getProfileNavHref } from "@/lib/auth/navigation";
 const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/books", label: "Books" },
-  { href: "/categories", label: "Categories" },
+  { href: "/authors", label: "Authors" },
   { href: "/about", label: "About" },
 ];
 

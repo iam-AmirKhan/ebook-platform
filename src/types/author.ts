@@ -53,4 +53,72 @@ export interface ActionResult {
   fieldErrors?: Record<string, string[]>;
   bookId?: string;
   slug?: string;
+  message?: string;
 }
+
+export interface AuthorFinancialSummary {
+  lifetimeEarnings: number;
+  availableBalance: number;
+  pendingBalance: number;
+  withdrawnTotal: number;
+}
+
+export interface AuthorBookSaleItem {
+  bookId: string;
+  title: string;
+  slug: string;
+  coverImage: string | null;
+  status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  price: number;
+  unitsSold: number;
+  grossSales: number;
+  authorEarnings: number;
+}
+
+export interface AuthorWithdrawalItem {
+  _id: string;
+  amount: number;
+  currency: string;
+  payoutMethod: "BKASH" | "NAGAD";
+  payoutAccountNumber: string;
+  status: "PENDING" | "ACCEPTED" | "PAID" | "REJECTED" | "CANCELLED";
+  rejectionReason: string | null;
+  cancellationReason: string | null;
+  paymentTransactionId: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+  paidAt: string | null;
+}
+
+export interface AuthorProfileData {
+  _id: string;
+  userId: string;
+  penName: string;
+  slug: string;
+  bio: string | null;
+  profileImage: string | null;
+  email: string;
+  name: string;
+}
+
+export interface PublicAuthorCard {
+  _id: string;
+  penName: string;
+  slug: string;
+  bio: string | null;
+  profileImage: string | null;
+  publishedBooksCount: number;
+  createdAt: string;
+}
+
+export interface PublicAuthorProfile extends PublicAuthorCard {
+  userImage?: string | null;
+}
+
+export interface PublicAuthorsResult {
+  authors: PublicAuthorCard[];
+  totalCount: number;
+  totalPages: number;
+  currentPage: number;
+}
+

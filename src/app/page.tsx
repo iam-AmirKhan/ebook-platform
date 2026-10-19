@@ -111,7 +111,7 @@ export default async function HomePage() {
               Browse Books
             </Link>
             <Link
-              href="/categories"
+              href="/books"
               id="hero-categories-cta"
               className="flex h-11 items-center justify-center rounded-lg border border-border px-7 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
             >
@@ -212,7 +212,7 @@ export default async function HomePage() {
               </p>
             </div>
             <Link
-              href="/categories"
+              href="/books"
               className="shrink-0 text-sm font-medium text-brand underline-offset-4 hover:underline"
             >
               All categories →
