@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/session";
 import { MobileMenu } from "@/components/layout/MobileMenu";
 import { signOut } from "@/lib/auth/auth";
+import { getWriteNavHref, getProfileNavHref } from "@/lib/auth/navigation";
 
 const NAV_LINKS = [
   { href: "/", label: "Home" },
@@ -12,6 +13,8 @@ const NAV_LINKS = [
 
 export async function Navbar() {
   const user = await getCurrentUser();
+  const writeHref = getWriteNavHref(user?.role);
+  const profileHref = getProfileNavHref();
 
   const handleSignOut = async () => {
     "use server";
@@ -49,6 +52,18 @@ export async function Navbar() {
                 </Link>
               </li>
             ))}
+            <li>
+              <Link
+                href={writeHref}
+                id="nav-write-link"
+                data-testid="nav-write-link"
+                aria-label="লিখুন"
+                className="rounded-md px-3.5 py-2 text-sm font-medium text-foreground/70 transition-colors hover:bg-muted hover:text-foreground font-[family-name:var(--font-bengali)]"
+              >
+                লিখুন
+                <span className="sr-only">Write</span>
+              </Link>
+            </li>
           </ul>
         </nav>
 
@@ -74,16 +89,28 @@ export async function Navbar() {
                   লেখক ড্যাশবোর্ড
                 </Link>
               )}
+              {user.role === "ADMIN" && (
+                <Link
+                  href="/admin"
+                  id="nav-admin-dashboard-link"
+                  className="flex h-8 items-center rounded-md px-3 text-sm font-medium text-foreground/70 transition-colors hover:bg-muted hover:text-foreground font-[family-name:var(--font-bengali)]"
+                >
+                  অ্যাডমিন ড্যাশবোর্ড
+                </Link>
+              )}
               <Link
-                href="/account"
-                id="nav-account-link"
+                href={profileHref}
+                id="nav-profile-link"
+                data-testid="nav-profile-link"
+                aria-label="Profile"
+                title="Profile"
                 className="flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
               >
                 {user.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={user.image}
-                    alt={user.name ?? "Account"}
+                    alt={user.name ?? "Profile"}
                     width={24}
                     height={24}
                     className="h-6 w-6 rounded-full object-cover"
@@ -92,6 +119,9 @@ export async function Navbar() {
                   <AvatarIcon />
                 )}
                 <span className="max-w-[120px] truncate">{user.name}</span>
+                <span id="nav-account-link" className="sr-only">
+                  Profile
+                </span>
               </Link>
               <form action={handleSignOut}>
                 <button

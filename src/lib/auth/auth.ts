@@ -5,6 +5,7 @@ import GoogleProvider from "next-auth/providers/google";
 import dbConnect from "@/lib/db/mongoose";
 import User from "@/models/User";
 import { verifyPassword } from "@/lib/auth/password";
+import { Types } from "mongoose";
 
 // Augment NextAuth types to include our Mongoose User fields
 declare module "next-auth" {
@@ -23,10 +24,18 @@ declare module "next-auth" {
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  trustHost: true,
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      authorization: {
+        params: {
+          prompt: "select_account",
+          access_type: "offline",
+          response_type: "code",
+        },
+      },
     }),
     CredentialsProvider({
       name: "Credentials",
@@ -74,6 +83,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   session: {
     // JWT strategy is required for NextAuth when using a custom database like Mongoose.
     strategy: "jwt",
+  },
+  cookies: {
+    sessionToken: {
+      name: process.env.NODE_ENV === "production" ? "__Secure-authjs.session-token" : "authjs.session-token",
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+      },
+    },
   },
   callbacks: {
     async signIn({ user, account }) {
@@ -123,11 +143,36 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
       return true;
     },
-    async jwt({ token, user, account }) {
+    async jwt({ token, user, account, trigger }) {
       if (user) {
         token.id = user.id;
         token.role = user.role;
         token.status = user.status;
+      }
+
+      // Ensure token.id is mapped from token.sub if not present
+      if (!token.id && token.sub) {
+        token.id = token.sub;
+      }
+
+      // Enrich or refresh missing role/status on reloads or token updates
+      if (!token.role || !token.status || trigger === "update") {
+        await dbConnect();
+        let dbUser = null;
+        const candidateId = token.id as string | undefined;
+        if (candidateId && Types.ObjectId.isValid(candidateId)) {
+          dbUser = await User.findById(candidateId).select("role status").lean();
+        }
+        if (!dbUser && token.email) {
+          dbUser = await User.findOne({ email: token.email.toLowerCase().trim() })
+            .select("role status")
+            .lean();
+        }
+        if (dbUser) {
+          token.id = dbUser._id.toString();
+          token.role = dbUser.role;
+          token.status = dbUser.status;
+        }
       }
 
       // Guarantee token enrichment for Google OAuth
@@ -148,7 +193,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
     async session({ session, token }) {
       if (token && session.user) {
-        session.user.id = token.id as string;
+        const resolvedId = (token.id as string) || (token.sub as string);
+        session.user.id = resolvedId;
         session.user.role = token.role as "USER" | "AUTHOR" | "ADMIN";
         session.user.status = token.status as "ACTIVE" | "SUSPENDED" | "DELETED";
       }

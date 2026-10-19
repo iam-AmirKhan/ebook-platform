@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { requireRole } from "@/lib/auth/authorization";
+import { redirect } from "next/navigation";
+import { requireUser } from "@/lib/auth/session";
 import { getLatestAuthorApplicationForUser } from "@/lib/data/author-applications";
 import { AuthorApplicationForm } from "@/components/become-author/AuthorApplicationForm";
 import type { AuthorApplicationStatus } from "@/models/AuthorApplication";
@@ -28,7 +29,20 @@ function displayApplicationValue(value: string): string {
 }
 
 export default async function BecomeAuthorPage() {
-  const user = await requireRole("USER");
+  const user = await requireUser();
+
+  if (user.role === "ADMIN") {
+    redirect("/admin");
+  }
+
+  if (user.role === "AUTHOR") {
+    redirect("/author");
+  }
+
+  if (user.role !== "USER") {
+    redirect("/forbidden");
+  }
+
   const application = await getLatestAuthorApplicationForUser(user.id);
   const canSubmit =
     !application || application.status === "REJECTED";

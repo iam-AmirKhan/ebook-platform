@@ -1,7 +1,9 @@
 import dbConnect from "@/lib/db/mongoose";
+import { requireAdmin } from "@/lib/auth/authorization";
 import Book, { type BookStatus } from "@/models/Book";
 import Author from "@/models/Author";
 import Category from "@/models/Category";
+import User from "@/models/User";
 import type { BookFormData } from "@/types/author";
 
 export interface AdminBookCounts {
@@ -77,6 +79,7 @@ function escapeRegex(text: string): string {
  * Counts all books by their status: ALL, PUBLISHED, DRAFT, ARCHIVED.
  */
 export async function getAdminBookCounts(): Promise<AdminBookCounts> {
+  await requireAdmin();
   await dbConnect();
 
   const [all, published, draft, archived] = await Promise.all([
@@ -100,11 +103,13 @@ export async function getAdminBookCounts(): Promise<AdminBookCounts> {
 export async function getAdminBooks(
   params: AdminBooksSearchParams = {}
 ): Promise<AdminBooksResult> {
+  await requireAdmin();
   await dbConnect();
 
   // Ensure referenced models are registered in Mongoose runtime
   void Author;
   void Category;
+  void User;
 
   const limit =
     typeof params.limit === "number" && params.limit > 0
@@ -127,9 +132,57 @@ export async function getAdminBooks(
     query.status = statusUpper;
   }
 
-  // Search Filter (by title)
+  // Search Filter (by title, author's pen/display name, category name/slug)
   if (params.q?.trim()) {
-    query.title = { $regex: escapeRegex(params.q.trim()), $options: "i" };
+    const safeQ = escapeRegex(params.q.trim());
+    const regex = { $regex: safeQ, $options: "i" };
+
+    // Concurrently find matching categories (name or slug) and registered users (display name)
+    const [matchingCategories, matchingUsers] = await Promise.all([
+      Category.find({
+        $or: [{ name: regex }, { slug: regex }],
+      })
+        .select("_id")
+        .lean(),
+      User.find({
+        name: regex,
+      })
+        .select("_id")
+        .lean(),
+    ]);
+
+    const matchingCategoryIds = matchingCategories.map((c) => c._id);
+    const matchingUserIds = matchingUsers.map((u) => u._id);
+
+    // Find matching authors by penName, slug, or matching registered user
+    const authorOrConditions: Record<string, unknown>[] = [
+      { penName: regex },
+      { slug: regex },
+    ];
+    if (matchingUserIds.length > 0) {
+      authorOrConditions.push({ user: { $in: matchingUserIds } });
+    }
+
+    const matchingAuthors = await Author.find({
+      $or: authorOrConditions,
+    })
+      .select("_id")
+      .lean();
+
+    const matchingAuthorIds = matchingAuthors.map((a) => a._id);
+
+    // Construct book-level $or conditions
+    const bookOrConditions: Record<string, unknown>[] = [{ title: regex }];
+
+    if (matchingAuthorIds.length > 0) {
+      bookOrConditions.push({ author: { $in: matchingAuthorIds } });
+    }
+
+    if (matchingCategoryIds.length > 0) {
+      bookOrConditions.push({ category: { $in: matchingCategoryIds } });
+    }
+
+    query.$or = bookOrConditions;
   }
 
   // Determine the total number of matching books before calculating the effective page
@@ -202,6 +255,7 @@ export async function getAdminBooks(
 export async function getAdminBookForEdit(
   bookId: string
 ): Promise<AdminBookEditData | null> {
+  await requireAdmin();
   if (!isValidObjectId(bookId)) {
     return null;
   }

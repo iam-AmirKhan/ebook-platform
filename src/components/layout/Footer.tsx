@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getCurrentUser } from "@/lib/auth/session";
 
 const FOOTER_LINKS = {
   Explore: [
@@ -18,8 +19,10 @@ const FOOTER_LINKS = {
   ],
 };
 
-export function Footer() {
+export async function Footer() {
   const currentYear = new Date().getFullYear();
+  const user = await getCurrentUser();
+  const isAdmin = user?.role === "ADMIN";
 
   return (
     <footer
@@ -65,6 +68,28 @@ export function Footer() {
                     </Link>
                   </li>
                 ))}
+                {heading === "Account" && isAdmin && (
+                  <>
+                    <li>
+                      <Link
+                        href="/admin"
+                        id="footer-admin-dashboard-link"
+                        className="text-sm font-medium text-brand transition-colors hover:underline font-[family-name:var(--font-bengali)]"
+                      >
+                        অ্যাডমিন ড্যাশবোর্ড
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        href="/admin/author-applications"
+                        id="footer-admin-author-applications-link"
+                        className="text-sm font-medium text-brand transition-colors hover:underline font-[family-name:var(--font-bengali)]"
+                      >
+                        আবেদন পর্যালোচনা
+                      </Link>
+                    </li>
+                  </>
+                )}
               </ul>
             </div>
           ))}

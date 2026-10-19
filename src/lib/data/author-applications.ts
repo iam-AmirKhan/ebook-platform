@@ -1,4 +1,5 @@
 import dbConnect from "@/lib/db/mongoose";
+import { requireAdmin } from "@/lib/auth/authorization";
 import AuthorApplication, {
   type IAuthorApplicationSocialLink,
   type AuthorApplicationStatus,
@@ -134,6 +135,7 @@ function escapeRegex(text: string): string {
 export async function getAdminAuthorApplications(
   params: AdminAuthorApplicationsSearchParams = {}
 ): Promise<AdminAuthorApplicationsResult> {
+  await requireAdmin();
   await dbConnect();
   // Ensure User model is loaded for population and search
   void User;
@@ -282,6 +284,7 @@ export async function getAdminAuthorApplications(
 }
 
 export async function getAdminAuthorApplicationCounts(): Promise<AdminAuthorApplicationCounts> {
+  await requireAdmin();
   await dbConnect();
 
   const [all, pending, approved, rejected] = await Promise.all([

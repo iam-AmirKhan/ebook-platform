@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
+import { getWriteNavHref, getProfileNavHref } from "@/lib/auth/navigation";
 
 interface MobileMenuProps {
   isAuthenticated: boolean;
@@ -67,6 +68,8 @@ export function MobileMenuButton({ isOpen, onClick }: { isOpen: boolean; onClick
 
 export function MobileMenu({ isAuthenticated, userName, userRole }: MobileMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const writeHref = getWriteNavHref(isAuthenticated ? userRole : null);
+  const profileHref = getProfileNavHref();
 
   return (
     <>
@@ -138,6 +141,19 @@ export function MobileMenu({ isAuthenticated, userName, userRole }: MobileMenuPr
                   </Link>
                 </li>
               ))}
+              <li>
+                <Link
+                  href={writeHref}
+                  id="mobile-nav-write-link"
+                  data-testid="mobile-nav-write-link"
+                  aria-label="লিখুন"
+                  onClick={() => setIsOpen(false)}
+                  className="flex items-center rounded-md px-3 py-2.5 text-sm font-medium text-foreground/80 transition-colors hover:bg-muted hover:text-foreground font-[family-name:var(--font-bengali)]"
+                >
+                  লিখুন
+                  <span className="sr-only">Write</span>
+                </Link>
+              </li>
             </ul>
           </nav>
 
@@ -151,11 +167,17 @@ export function MobileMenu({ isAuthenticated, userName, userRole }: MobileMenuPr
                   </p>
                 )}
                 <Link
-                  href="/account"
+                  href={profileHref}
+                  id="mobile-nav-profile-link"
+                  data-testid="mobile-nav-profile-link"
+                  aria-label="Profile"
                   onClick={() => setIsOpen(false)}
                   className="flex w-full items-center rounded-md px-3 py-2.5 text-sm font-medium text-foreground/80 transition-colors hover:bg-muted hover:text-foreground"
                 >
-                  My Account
+                  Profile
+                  <span id="mobile-nav-account-link" className="sr-only">
+                    My Account
+                  </span>
                 </Link>
                 {userRole === "USER" && (
                   <Link
@@ -173,6 +195,16 @@ export function MobileMenu({ isAuthenticated, userName, userRole }: MobileMenuPr
                     className="flex w-full items-center rounded-md px-3 py-2.5 text-sm font-medium text-foreground/80 transition-colors hover:bg-muted hover:text-foreground font-[family-name:var(--font-bengali)]"
                   >
                     লেখক ড্যাশবোর্ড
+                  </Link>
+                )}
+                {userRole === "ADMIN" && (
+                  <Link
+                    href="/admin"
+                    id="mobile-nav-admin-dashboard-link"
+                    onClick={() => setIsOpen(false)}
+                    className="flex w-full items-center rounded-md px-3 py-2.5 text-sm font-medium text-foreground/80 transition-colors hover:bg-muted hover:text-foreground font-[family-name:var(--font-bengali)]"
+                  >
+                    অ্যাডমিন ড্যাশবোর্ড
                   </Link>
                 )}
                 <button
