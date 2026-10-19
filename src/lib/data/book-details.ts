@@ -23,6 +23,7 @@ import Purchase from "@/models/Purchase";
 import type {
   BookDetails,
   BookReview,
+  BookRatingSummary,
   ChapterPreview,
 } from "@/types/book-details";
 import type { HomepageBook } from "@/types/homepage";
@@ -167,27 +168,97 @@ export async function checkUserOwnership(
 }
 
 // ---------------------------------------------------------------------------
-// Public: getBookReviews
+// Public: getBookReviews (Approved only)
 // ---------------------------------------------------------------------------
 export async function getBookReviews(bookId: string): Promise<BookReview[]> {
   await dbConnect();
 
   const reviews = await Review.find({
     book: bookId,
-    status: "PUBLISHED",
+    status: { $in: ["APPROVED", "PUBLISHED"] },
   })
     .sort({ createdAt: -1 })
-    .populate<{ user: { name: string } }>("user", "name")
+    .populate<{ user: { name: string; _id: unknown } }>("user", "name")
     .lean();
 
   return reviews.map((r) => ({
     _id: String(r._id),
     rating: r.rating,
     comment: r.comment,
+    status: r.status as "PENDING" | "APPROVED" | "REJECTED" | "PUBLISHED" | "HIDDEN",
     createdAt:
       r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt),
     reviewerName: r.user?.name ?? "Anonymous Reader",
+    reviewerId: r.user?._id ? String(r.user._id) : undefined,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Public: getBookRatingSummary (Derived strictly from approved reviews)
+// ---------------------------------------------------------------------------
+export async function getBookRatingSummary(
+  bookId: string
+): Promise<BookRatingSummary> {
+  await dbConnect();
+
+  const approvedReviews = await Review.find({
+    book: bookId,
+    status: { $in: ["APPROVED", "PUBLISHED"] },
+  })
+    .select("rating")
+    .lean();
+
+  const totalReviews = approvedReviews.length;
+  const breakdown: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  let sum = 0;
+
+  for (const r of approvedReviews) {
+    sum += r.rating;
+    const roundedRating = Math.min(5, Math.max(1, Math.round(r.rating)));
+    breakdown[roundedRating] = (breakdown[roundedRating] || 0) + 1;
+  }
+
+  const averageRating =
+    totalReviews > 0 ? Number((sum / totalReviews).toFixed(1)) : 0;
+
+  return {
+    averageRating,
+    totalReviews,
+    breakdown,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Authenticated: getUserBookReview (returns user's own review regardless of status)
+// ---------------------------------------------------------------------------
+export async function getUserBookReview(
+  bookId: string,
+  userId: string | null | undefined
+): Promise<BookReview | null> {
+  if (!userId) return null;
+  await dbConnect();
+
+  const review = await Review.findOne({
+    book: bookId,
+    user: userId,
+  })
+    .populate<{ user: { name: string } }>("user", "name")
+    .lean();
+
+  if (!review) return null;
+
+  return {
+    _id: String(review._id),
+    rating: review.rating,
+    comment: review.comment,
+    status: review.status as "PENDING" | "APPROVED" | "REJECTED" | "PUBLISHED" | "HIDDEN",
+    createdAt:
+      review.createdAt instanceof Date
+        ? review.createdAt.toISOString()
+        : String(review.createdAt),
+    reviewerName: review.user?.name ?? "Anonymous Reader",
+    reviewerId: userId,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -4,6 +4,8 @@ import { requireAdmin } from "@/lib/auth/authorization";
 import { getAdminAuthorApplicationCounts } from "@/lib/data/author-applications";
 import { getAdminBookCounts } from "@/lib/data/admin-books";
 import { calculatePlatformStats } from "@/lib/services/finance";
+import { getAdminReviewCounts } from "@/lib/data/admin-reviews";
+import Category from "@/models/Category";
 import {
   FileText,
   Clock,
@@ -13,7 +15,8 @@ import {
   Shield,
   BookOpen,
   ShoppingBag,
-  Users,
+  FolderTree,
+  MessageSquare,
 } from "lucide-react";
 
 export const metadata: Metadata = {
@@ -26,10 +29,12 @@ export default async function AdminDashboardPage() {
   const admin = await requireAdmin();
 
   // Retrieve real-time counts from MongoDB DAL
-  const [counts, bookCounts, financeStats] = await Promise.all([
+  const [counts, bookCounts, financeStats, categoryCount, reviewCounts] = await Promise.all([
     getAdminAuthorApplicationCounts(),
     getAdminBookCounts(),
     calculatePlatformStats(),
+    Category.countDocuments({}),
+    getAdminReviewCounts(),
   ]);
 
   return (
@@ -263,27 +268,88 @@ export default async function AdminDashboardPage() {
               </div>
             </Link>
 
-            <div className="relative flex flex-col justify-between rounded-xl border border-dashed border-border/60 bg-muted/20 p-6 opacity-75">
+            {/* Category Management Card */}
+            <Link
+              href="/admin/categories"
+              id="admin-categories-card"
+              className="group relative flex flex-col justify-between rounded-xl border border-border/60 bg-card p-6 shadow-xs transition-all hover:border-brand/40 hover:shadow-md"
+            >
               <div>
                 <div className="flex items-start justify-between">
-                  <div className="flex size-11 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-                    <Users className="size-5" />
+                  <div className="flex size-11 items-center justify-center rounded-xl bg-brand/10 text-brand">
+                    <FolderTree className="size-5" />
                   </div>
-                  <span className="rounded-full bg-muted px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground font-[family-name:var(--font-bengali)]">
-                    শীঘ্রই আসছে
+                  <span className="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand font-[family-name:var(--font-bengali)]">
+                    মোট {categoryCount}টি বিভাগ
                   </span>
                 </div>
-                <h3 className="mt-4 text-base font-semibold text-foreground font-[family-name:var(--font-bengali)]">
-                  ব্যবহারকারী ও নিরাপত্তা
+
+                <h3 className="mt-4 text-base font-semibold text-foreground font-[family-name:var(--font-bengali)] group-hover:text-brand">
+                  বিভাগ পরিচালনা (Categories)
                 </h3>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground font-[family-name:var(--font-bengali)]">
-                  ব্যবহারকারী তালিকা, ভূমিকা (Roles) ও প্ল্যাটফর্ম নিরাপত্তা তদারকি।
+                  প্ল্যাটফর্মের সকল বইয়ের বিভাগ তৈরি, সম্পাদনা, সক্রিয় বা নিষ্ক্রিয় করুন।
                 </p>
               </div>
-              <div className="mt-6 border-t border-border/40 pt-4 text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
-                পরবর্তী ধাপে উন্মুক্ত করা হবে
+
+              <div className="mt-6 flex items-center justify-between border-t border-border/40 pt-4 text-xs font-medium text-brand font-[family-name:var(--font-bengali)]">
+                <span>বিভাগ তালিকায় যান</span>
+                <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
               </div>
-            </div>
+            </Link>
+
+            {/* Reviews Management Card */}
+            <Link
+              href="/admin/reviews"
+              id="admin-reviews-card"
+              className="group relative flex flex-col justify-between rounded-xl border border-border/60 bg-card p-6 shadow-xs transition-all hover:border-brand/40 hover:shadow-md"
+            >
+              <div>
+                <div className="flex items-start justify-between">
+                  <div className="flex size-11 items-center justify-center rounded-xl bg-brand/10 text-brand">
+                    <MessageSquare className="size-5" />
+                  </div>
+                  {reviewCounts.pending > 0 ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400 font-[family-name:var(--font-bengali)]">
+                      <Clock className="size-3" />
+                      {reviewCounts.pending}টি যাচাই বাকি
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 font-[family-name:var(--font-bengali)]">
+                      <CheckCircle2 className="size-3" />
+                      সব পর্যালোচিত
+                    </span>
+                  )}
+                </div>
+
+                <h3 className="mt-4 text-base font-semibold text-foreground font-[family-name:var(--font-bengali)] group-hover:text-brand">
+                  পাঠক রিভিউ ও রেটিং (Reviews)
+                </h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground font-[family-name:var(--font-bengali)]">
+                  পাঠকদের জমা দেওয়া রিভিউ ও রেটিং যাচাই, সম্পাদন, অনুমোদন বা প্রত্যাখ্যান করুন।
+                </p>
+
+                <div className="mt-4 flex flex-wrap gap-2 text-xs font-[family-name:var(--font-bengali)]">
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2.5 py-1 text-emerald-700 dark:text-emerald-400">
+                    <span className="size-1.5 rounded-full bg-emerald-500" />
+                    অনুমোদিত: <strong>{reviewCounts.approved}</strong>
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2.5 py-1 text-amber-700 dark:text-amber-400">
+                    <span className="size-1.5 rounded-full bg-amber-500" />
+                    অপেক্ষমাণ: <strong>{reviewCounts.pending}</strong>
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2.5 py-1 text-muted-foreground">
+                    <span className="size-1.5 rounded-full bg-muted-foreground/60" />
+                    মোট: <strong>{reviewCounts.all}</strong>
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-6 flex items-center justify-between border-t border-border/40 pt-4 text-xs font-medium text-brand font-[family-name:var(--font-bengali)]">
+                <span>রিভিউ পরিচালনা করুন</span>
+                <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
+              </div>
+            </Link>
           </div>
         </div>
       </div>

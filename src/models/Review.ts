@@ -1,6 +1,6 @@
 import mongoose, { Document, Model, Schema, Types } from "mongoose";
 
-export type ReviewStatus = "PUBLISHED" | "HIDDEN";
+export type ReviewStatus = "PENDING" | "APPROVED" | "REJECTED" | "PUBLISHED" | "HIDDEN";
 
 export interface IReview {
   user: Types.ObjectId;
@@ -8,6 +8,8 @@ export interface IReview {
   rating: number;
   comment: string;
   status: ReviewStatus;
+  moderatedBy?: Types.ObjectId | null;
+  moderatedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -20,11 +22,13 @@ const ReviewSchema = new Schema<IReviewDocument>(
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
+      index: true,
     },
     book: {
       type: Schema.Types.ObjectId,
       ref: "Book",
       required: true,
+      index: true,
     },
     rating: {
       type: Number,
@@ -36,12 +40,23 @@ const ReviewSchema = new Schema<IReviewDocument>(
       type: String,
       required: true,
       trim: true,
+      maxlength: 1000,
     },
     status: {
       type: String,
-      enum: ["PUBLISHED", "HIDDEN"],
-      default: "PUBLISHED",
+      enum: ["PENDING", "APPROVED", "REJECTED", "PUBLISHED", "HIDDEN"],
+      default: "PENDING",
       required: true,
+      index: true,
+    },
+    moderatedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    moderatedAt: {
+      type: Date,
+      default: null,
     },
   },
   {
@@ -49,10 +64,11 @@ const ReviewSchema = new Schema<IReviewDocument>(
   }
 );
 
-// Unique compound index — enforces one review per user per book at the
-// database level. A user may review many books; a book may receive
-// reviews from many users. The uniqueness applies only to the pair.
+// Enforce one review per user per book
 ReviewSchema.index({ user: 1, book: 1 }, { unique: true });
+// Compound indexes for high-throughput public rating lookups and admin moderation filtering
+ReviewSchema.index({ book: 1, status: 1 });
+ReviewSchema.index({ status: 1, createdAt: -1 });
 
 // Prevent OverwriteModelError during Next.js hot reload
 const Review: Model<IReviewDocument> =

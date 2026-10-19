@@ -58,6 +58,14 @@ export interface BookReview {
   comment: string;
   createdAt: string;
   reviewerName: string;
+  reviewerId?: string;
+  status?: "PENDING" | "APPROVED" | "REJECTED" | "PUBLISHED" | "HIDDEN";
+}
+
+export interface BookRatingSummary {
+  averageRating: number;
+  totalReviews: number;
+  breakdown: Record<number, number>;
 }
 
 export interface BookDetailsData {
@@ -65,4 +73,7 @@ export interface BookDetailsData {
   reviews: BookReview[];
   relatedBooks: HomepageBook[];
   isOwnedByUser: boolean;
+  ratingSummary?: BookRatingSummary;
+  userReview?: BookReview | null;
 }
+

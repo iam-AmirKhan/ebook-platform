@@ -5,11 +5,15 @@ import { getCurrentUser } from "@/lib/auth/session";
 import {
   getBookBySlug,
   getBookReviews,
+  getBookRatingSummary,
+  getUserBookReview,
   getRelatedBooks,
 } from "@/lib/data/book-details";
 import { BookGrid } from "@/components/books/BookGrid";
-import { ReviewsList } from "@/components/books/ReviewsList";
+import { ReviewSection } from "@/components/books/ReviewSection";
+import { ShareBookButton } from "@/components/books/ShareBookButton";
 import { ChapterList } from "@/components/books/ChapterList";
+import { Star } from "lucide-react";
 import dbConnect from "@/lib/db/mongoose";
 import Order from "@/models/Order";
 import { Types } from "mongoose";
@@ -51,8 +55,10 @@ export default async function BookPage({ params }: BookPageProps) {
     notFound();
   }
 
-  const [reviews, relatedBooks] = await Promise.all([
+  const [reviews, ratingSummary, userReview, relatedBooks] = await Promise.all([
     getBookReviews(book._id),
+    getBookRatingSummary(book._id),
+    getUserBookReview(book._id, user?.id),
     getRelatedBooks(book.category._id, book._id),
   ]);
 
@@ -166,6 +172,25 @@ export default async function BookPage({ params }: BookPageProps) {
                 </Link>
               </p>
 
+              {/* Star Rating Badge */}
+              <div className="mt-3 flex items-center gap-2.5">
+                <div className="flex items-center gap-1 text-amber-500">
+                  <Star className="size-4 fill-amber-400 text-amber-400" />
+                  <span className="font-bold text-foreground text-sm">
+                    {ratingSummary.totalReviews > 0 ? ratingSummary.averageRating.toFixed(1) : "০.০"}
+                  </span>
+                </div>
+                <span className="text-muted-foreground/40">•</span>
+                <a
+                  href="#reviews"
+                  className="text-xs text-muted-foreground hover:text-brand hover:underline font-[family-name:var(--font-bengali)]"
+                >
+                  {ratingSummary.totalReviews > 0
+                    ? `${ratingSummary.totalReviews}টি পর্যালোচনা`
+                    : "কোনো পর্যালোচনা নেই"}
+                </a>
+              </div>
+
               {/* Summary — 17px, generous line-height */}
               {book.summary && (
                 <p className="mt-5 text-[1.0625rem] leading-[1.85] text-foreground/80 font-[family-name:var(--font-bengali)]">
@@ -185,8 +210,8 @@ export default async function BookPage({ params }: BookPageProps) {
                 )}
               </div>
 
-              {/* CTA — honest states, no dead buttons */}
-              <div className="mt-7">
+              {/* CTA & Actions — honest states, no dead buttons */}
+              <div className="mt-7 flex flex-wrap items-center gap-3">
                 {isOwned ? (
                   <div className="inline-flex items-center gap-2 rounded-lg bg-brand/10 px-4 py-3 text-[0.9375rem] font-semibold text-brand">
                     <svg
@@ -247,6 +272,12 @@ export default async function BookPage({ params }: BookPageProps) {
                     </p>
                   </div>
                 )}
+
+                <ShareBookButton
+                  title={book.title}
+                  slug={book.slug}
+                  authorName={book.author.penName}
+                />
               </div>
             </div>
           </div>
@@ -312,16 +343,24 @@ export default async function BookPage({ params }: BookPageProps) {
             </section>
           )}
 
-          {/* পাঠক পর্যালোচনা ──────────────────────────────────────── */}
-          <section aria-labelledby="reviews-heading">
+          {/* পাঠক পর্যালোচনা ও রেটিং ────────────────────────────── */}
+          <section id="reviews" aria-labelledby="reviews-heading">
             <h2
               id="reviews-heading"
-              className="mb-5 text-[1.625rem] font-bold leading-snug text-foreground font-[family-name:var(--font-bengali)]"
+              className="mb-6 text-[1.625rem] font-bold leading-snug text-foreground font-[family-name:var(--font-bengali)]"
             >
-              পাঠক পর্যালোচনা
+              পাঠক পর্যালোচনা ও রেটিং
             </h2>
-            <div className="max-w-2xl">
-              <ReviewsList reviews={reviews} />
+            <div className="max-w-3xl">
+              <ReviewSection
+                bookId={book._id}
+                bookTitle={book.title}
+                reviews={reviews}
+                ratingSummary={ratingSummary}
+                isOwned={isOwned}
+                isLoggedIn={!!user}
+                userReview={userReview}
+              />
             </div>
           </section>
 

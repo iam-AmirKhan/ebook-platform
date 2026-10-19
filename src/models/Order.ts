@@ -7,7 +7,7 @@ export type OrderStatus =
   | "CANCELLED"
   | "REFUNDED";
 
-export type PaymentMethod = "MOCK" | "SSLCOMMERZ";
+export type PaymentMethod = "MOCK" | "SSLCOMMERZ" | "BKASH" | "NAGAD";
 
 export interface IOrderItem {
   book: Types.ObjectId;
@@ -25,6 +25,10 @@ export interface IOrder {
   currency: string;
   paymentMethod: PaymentMethod;
   transactionId?: string | null;
+  senderNumber?: string | null;
+  adminNote?: string | null;
+  reviewedBy?: Types.ObjectId | null;
+  reviewedAt?: Date | null;
   status: OrderStatus;
   createdAt: Date;
   updatedAt: Date;
@@ -100,24 +104,59 @@ const OrderSchema = new Schema<IOrderDocument>(
     },
     paymentMethod: {
       type: String,
-      enum: ["MOCK", "SSLCOMMERZ"],
+      enum: ["MOCK", "SSLCOMMERZ", "BKASH", "NAGAD"],
       required: true,
     },
     transactionId: {
       type: String,
       default: null,
       trim: true,
-      index: true,
+    },
+    senderNumber: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    adminNote: {
+      type: String,
+      default: null,
+      trim: true,
+      maxlength: 1000,
+    },
+    reviewedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    reviewedAt: {
+      type: Date,
+      default: null,
     },
     status: {
       type: String,
       enum: ["PENDING", "PAID", "FAILED", "CANCELLED", "REFUNDED"],
       default: "PENDING",
       required: true,
+      index: true,
     },
   },
   {
     timestamps: true,
+  }
+);
+
+// Compound index for user order history queries
+OrderSchema.index({ user: 1, createdAt: -1 });
+
+// Database-level enforcement of unique transaction ID across active/pending orders
+OrderSchema.index(
+  { transactionId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      transactionId: { $type: "string" },
+      status: { $in: ["PENDING", "PAID"] },
+    },
   }
 );
 
