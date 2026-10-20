@@ -67,6 +67,9 @@ export interface IBook {
   createdAt: Date;
   updatedAt: Date;
 
+  /** Manual display sequence set by admin. Lower numbers appear first. */
+  displayOrder?: number;
+
   // ---------------------------------------------------------------------------
   // Phase 6 additions — all optional for backward compatibility
   // ---------------------------------------------------------------------------
@@ -173,6 +176,11 @@ const BookSchema = new Schema<IBookDocument>(
     chapters: {
       type: [ChapterSchema],
       default: [],
+    },
+    displayOrder: {
+      type: Number,
+      default: 10000,
+      index: true,
     },
   },
   {

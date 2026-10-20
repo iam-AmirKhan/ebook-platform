@@ -17,6 +17,7 @@ export interface HomepageBook {
   categoryName: string;
   categorySlug: string;
   createdAt: string; // serialised ISO string
+  displayOrder?: number;
 }
 
 export interface HomepageCategory {

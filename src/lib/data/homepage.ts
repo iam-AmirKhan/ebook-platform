@@ -19,8 +19,8 @@ import type {
   HomepageStats,
 } from "@/types/homepage";
 
-const FEATURED_LIMIT = 6;
-const LATEST_LIMIT = 6;
+const FEATURED_LIMIT = 8;
+const LATEST_LIMIT = 8;
 const CATEGORIES_LIMIT = 12;
 
 // ---------------------------------------------------------------------------
@@ -35,6 +35,7 @@ function mapBook(raw: {
   discountPrice?: number | null;
   currency: string;
   createdAt: Date;
+  displayOrder?: number;
   author?: { penName?: string; slug?: string } | null;
   category?: { name?: string; slug?: string } | null;
 }): HomepageBook {
@@ -53,19 +54,31 @@ function mapBook(raw: {
     createdAt: raw.createdAt instanceof Date
       ? raw.createdAt.toISOString()
       : String(raw.createdAt),
+    displayOrder: typeof raw.displayOrder === "number" ? raw.displayOrder : 10000,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Featured books — newest PUBLISHED books, limit 6
-// Replace with curated/editorial selection in a future phase.
+// Featured books — only books the admin has explicitly ranked 1–8.
+// Books with the default displayOrder of 10000 (un-ranked) are excluded so
+// the homepage section never silently fills with arbitrary content.
 // ---------------------------------------------------------------------------
 export async function getFeaturedBooks(): Promise<HomepageBook[]> {
   try {
     await dbConnect();
 
-    const raw = await Book.find({ status: "PUBLISHED" })
-      .sort({ createdAt: -1 })
+    // Ensure legacy documents without displayOrder default to 10000 so they don't precede numbers
+    await Book.updateMany(
+      { $or: [{ displayOrder: { $exists: false } }, { displayOrder: null }] },
+      { $set: { displayOrder: 10000 } }
+    );
+
+    // Only books explicitly ranked by the admin (displayOrder 1–FEATURED_LIMIT)
+    const raw = await Book.find({
+      status: "PUBLISHED",
+      displayOrder: { $gte: 1, $lte: FEATURED_LIMIT },
+    })
+      .sort({ displayOrder: 1, createdAt: -1, _id: 1 })
       .limit(FEATURED_LIMIT)
       .populate<{ author: { penName: string; slug: string } | null }>(
         "author",
@@ -75,7 +88,7 @@ export async function getFeaturedBooks(): Promise<HomepageBook[]> {
         "category",
         "name slug"
       )
-      .select("title slug coverImage price discountPrice currency createdAt")
+      .select("title slug coverImage price discountPrice currency createdAt displayOrder")
       .lean();
 
     return raw.map(mapBook);
@@ -86,16 +99,14 @@ export async function getFeaturedBooks(): Promise<HomepageBook[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Latest books — same query shape, different offset/sort (for second section)
-// Skip the first 6 to avoid repeating featured books.
+// Latest books — chronological newest arrivals (createdAt DESC)
 // ---------------------------------------------------------------------------
 export async function getLatestBooks(): Promise<HomepageBook[]> {
   try {
     await dbConnect();
 
     const raw = await Book.find({ status: "PUBLISHED" })
-      .sort({ createdAt: -1 })
-      .skip(FEATURED_LIMIT)
+      .sort({ createdAt: -1, _id: 1 })
       .limit(LATEST_LIMIT)
       .populate<{ author: { penName: string; slug: string } | null }>(
         "author",
@@ -105,7 +116,7 @@ export async function getLatestBooks(): Promise<HomepageBook[]> {
         "category",
         "name slug"
       )
-      .select("title slug coverImage price discountPrice currency createdAt")
+      .select("title slug coverImage price discountPrice currency createdAt displayOrder")
       .lean();
 
     return raw.map(mapBook);
@@ -121,7 +132,14 @@ export async function getActiveCategories(): Promise<HomepageCategory[]> {
   try {
     await dbConnect();
 
-    const raw = await Category.find({ status: "ACTIVE" })
+    const publishedCategoryIds = await Book.distinct("category", {
+      status: "PUBLISHED",
+    });
+
+    const raw = await Category.find({
+      _id: { $in: publishedCategoryIds },
+      status: "ACTIVE",
+    })
       .sort({ name: 1 })
       .limit(CATEGORIES_LIMIT)
       .select("name slug description image")

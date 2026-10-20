@@ -35,6 +35,7 @@ export interface AdminBookItem {
   categorySlug: string;
   createdAt: string;
   updatedAt: string;
+  displayOrder: number;
 }
 
 export interface AdminBooksResult {
@@ -225,6 +226,7 @@ export async function getAdminBooks(
         typeof book.discountPrice === "number" ? book.discountPrice : null,
       currency: book.currency || "BDT",
       status: book.status,
+      displayOrder: typeof book.displayOrder === "number" ? book.displayOrder : 10000,
       authorName: rawAuthor?.penName ?? "অজানা লেখক",
       authorSlug: rawAuthor?.slug ?? "",
       categoryName: rawCategory?.name ?? "শ্রেণীবিহীন",
@@ -333,3 +335,70 @@ export async function getAdminBookForEdit(
     },
   };
 }
+
+/**
+ * Retrieve all PUBLISHED books ordered by displayOrder ASC (and createdAt DESC)
+ * exclusively for admin display-ordering management.
+ */
+export async function getAdminPublishedBooksForReorder(): Promise<AdminBookItem[]> {
+  await requireAdmin();
+  await dbConnect();
+
+  // Ensure legacy documents without displayOrder default to 10000 so they don't precede numbers
+  await Book.updateMany(
+    { $or: [{ displayOrder: { $exists: false } }, { displayOrder: null }] },
+    { $set: { displayOrder: 10000 } }
+  );
+
+  void Author;
+  void Category;
+
+  const rawBooks = await Book.find({ status: "PUBLISHED" })
+    .sort({ displayOrder: 1, createdAt: -1, _id: 1 })
+    .populate<{ author: { penName?: string; slug?: string } | null }>(
+      "author",
+      "penName slug"
+    )
+    .populate<{ category: { name?: string; slug?: string } | null }>(
+      "category",
+      "name slug"
+    )
+    .lean();
+
+  return rawBooks.map((book) => {
+    const rawAuthor = book.author as
+      | { penName?: string; slug?: string }
+      | null
+      | undefined;
+    const rawCategory = book.category as
+      | { name?: string; slug?: string }
+      | null
+      | undefined;
+
+    return {
+      _id: String(book._id),
+      title: book.title,
+      slug: book.slug,
+      coverImage: book.coverImage ?? null,
+      price: typeof book.price === "number" ? book.price : 0,
+      discountPrice:
+        typeof book.discountPrice === "number" ? book.discountPrice : null,
+      currency: book.currency || "BDT",
+      status: book.status,
+      displayOrder: typeof book.displayOrder === "number" ? book.displayOrder : 10000,
+      authorName: rawAuthor?.penName ?? "অজানা লেখক",
+      authorSlug: rawAuthor?.slug ?? "",
+      categoryName: rawCategory?.name ?? "শ্রেণীবিহীন",
+      categorySlug: rawCategory?.slug ?? "",
+      createdAt:
+        book.createdAt instanceof Date
+          ? book.createdAt.toISOString()
+          : String(book.createdAt),
+      updatedAt:
+        book.updatedAt instanceof Date
+          ? book.updatedAt.toISOString()
+          : String(book.updatedAt),
+    };
+  });
+}
+

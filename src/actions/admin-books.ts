@@ -71,7 +71,18 @@ function parseChapters(formData: FormData) {
   try {
     const parsed = JSON.parse(chaptersJson);
     if (!Array.isArray(parsed)) return [];
-    return parsed;
+    // Ignore completely empty untouched chapter stubs so drafts can be saved incrementally
+    const nonEmpty = parsed.filter((ch) => {
+      if (!ch || typeof ch !== "object") return false;
+      const title = typeof ch.title === "string" ? ch.title.trim() : "";
+      const content = typeof ch.content === "string" ? ch.content.trim() : "";
+      const teaser = typeof ch.teaser === "string" ? ch.teaser.trim() : "";
+      return title.length > 0 || content.length > 0 || teaser.length > 0;
+    });
+    return nonEmpty.map((ch, idx) => ({
+      ...ch,
+      order: idx + 1,
+    }));
   } catch {
     return [];
   }
@@ -445,7 +456,7 @@ export async function adminUnpublishBook(bookId: string): Promise<ActionResult> 
     // 5. Atomic status update
     const unpublishResult = await Book.updateOne(
       { _id: bookId, status: "PUBLISHED" },
-      { $set: { status: "DRAFT" } }
+      { $set: { status: "DRAFT", displayOrder: 10000 } }
     );
 
     if (unpublishResult.matchedCount === 0) {
@@ -456,6 +467,7 @@ export async function adminUnpublishBook(bookId: string): Promise<ActionResult> 
     }
 
     // 6. Revalidate affected paths
+    revalidatePath("/");
     revalidatePath("/admin");
     revalidatePath("/admin/books");
     revalidatePath(`/admin/books/${bookId}/edit`);
@@ -500,7 +512,7 @@ export async function adminArchiveBook(bookId: string): Promise<ActionResult> {
     // 5. Atomic status update
     const archiveResult = await Book.updateOne(
       { _id: bookId, status: { $in: ["DRAFT", "PUBLISHED"] } },
-      { $set: { status: "ARCHIVED" } }
+      { $set: { status: "ARCHIVED", displayOrder: 10000 } }
     );
 
     if (archiveResult.matchedCount === 0) {
@@ -511,6 +523,7 @@ export async function adminArchiveBook(bookId: string): Promise<ActionResult> {
     }
 
     // 6. Revalidate affected paths
+    revalidatePath("/");
     revalidatePath("/admin");
     revalidatePath("/admin/books");
     revalidatePath(`/admin/books/${bookId}/edit`);
@@ -524,3 +537,179 @@ export async function adminArchiveBook(bookId: string): Promise<ActionResult> {
     return { success: false, error: GENERIC_ARCHIVE_ERROR };
   }
 }
+
+/**
+ * Server Action for admins to explicitly select and sequence up to 8 featured books for the Home page.
+ * Strictly verifies requireAdmin(), enforces maximum 8 books, validates ObjectIds,
+ * prevents duplicates, verifies that all selected books exist and are PUBLISHED,
+ * and atomically sets displayOrder 1..N while resetting unselected books to 10000.
+ */
+export async function adminSaveFeaturedBooks(
+  featuredBookIds: string[]
+): Promise<ActionResult> {
+  // 1. Authenticate + authorize as ADMIN
+  await requireAdmin();
+
+  // 2. Validate input array
+  if (!Array.isArray(featuredBookIds)) {
+    return { success: false, error: "বইয়ের তালিকা প্রদান করুন" };
+  }
+
+  // 3. Enforce maximum 8 featured books
+  if (featuredBookIds.length > 8) {
+    return { success: false, error: "হোমপেজে সর্বোচ্চ ৮টি বই ফিচার্ড করা সম্ভব।" };
+  }
+
+  // 4. Validate ObjectId format
+  for (const id of featuredBookIds) {
+    if (!isValidObjectId(id)) {
+      return { success: false, error: `অবৈধ বই আইডি: ${id}` };
+    }
+  }
+
+  // 5. Duplicate prevention
+  const uniqueIds = new Set(featuredBookIds);
+  if (uniqueIds.size !== featuredBookIds.length) {
+    return { success: false, error: "তালিকায় ডুপ্লিকেট বই আইডি রয়েছে" };
+  }
+
+  try {
+    await dbConnect();
+
+    // 6. Verify all selected books exist and are published
+    if (featuredBookIds.length > 0) {
+      const publishedCount = await Book.countDocuments({
+        _id: { $in: featuredBookIds },
+        status: "PUBLISHED",
+      });
+
+      if (publishedCount !== featuredBookIds.length) {
+        return {
+          success: false,
+          error: "নির্বাচিত এক বা একাধিক বই প্রকাশিত নয় বা খুঁজে পাওয়া যায়নি।",
+        };
+      }
+    }
+
+    // 7. Reset previously featured books that are not in the new selection to 10000
+    await Book.updateMany(
+      { displayOrder: { $lte: 8 }, _id: { $nin: featuredBookIds } },
+      { $set: { displayOrder: 10000 } }
+    );
+
+    // 8. Atomically update displayOrder in bulk for the selected featured books
+    if (featuredBookIds.length > 0) {
+      const bulkOperations = featuredBookIds.map((bookId, index) => ({
+        updateOne: {
+          filter: { _id: bookId },
+          update: { $set: { displayOrder: index + 1 } },
+        },
+      }));
+
+      await Book.bulkWrite(bulkOperations);
+    }
+
+    // 9. Revalidate affected paths
+    try {
+      revalidatePath("/");
+      revalidatePath("/admin/books");
+      revalidatePath("/books");
+    } catch (revalidateErr) {
+      console.warn("[adminSaveFeaturedBooks] Non-fatal revalidation error:", revalidateErr);
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("adminSaveFeaturedBooks error:", error);
+    return {
+      success: false,
+      error: "ফিচার্ড বই সংরক্ষণ করতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।",
+    };
+  }
+}
+
+/**
+ * Server Action for admins to manually set displayOrder sequence for published books.
+ * Strictly verifies requireAdmin(), checks for valid ObjectIds, checks for duplicates,
+ * and updates each book's displayOrder atomically via MongoDB bulkWrite.
+ */
+export async function adminReorderBooks(
+  orderedBookIds: string[]
+): Promise<ActionResult> {
+  // 1. Authenticate + authorize as ADMIN
+  await requireAdmin();
+
+  // 2. Validate input array
+  if (!Array.isArray(orderedBookIds) || orderedBookIds.length === 0) {
+    return { success: false, error: "বইয়ের তালিকা প্রদান করুন" };
+  }
+
+  // 3. Validate ObjectId format
+  for (const id of orderedBookIds) {
+    if (!isValidObjectId(id)) {
+      return { success: false, error: `অবৈধ বই আইডি: ${id}` };
+    }
+  }
+
+  // 4. Duplicate prevention
+  const uniqueIds = new Set(orderedBookIds);
+  if (uniqueIds.size !== orderedBookIds.length) {
+    return { success: false, error: "তালিকায় ডুপ্লিকেট বই আইডি রয়েছে" };
+  }
+
+  try {
+    await dbConnect();
+
+    // 5. Verify all books exist and are published
+    const booksInDb = await Book.find({
+      _id: { $in: orderedBookIds },
+      status: "PUBLISHED",
+    })
+      .select("_id")
+      .lean();
+
+    if (booksInDb.length !== orderedBookIds.length) {
+      return {
+        success: false,
+        error: "তালিকায় থাকা এক বা একাধিক বই খুঁজে পাওয়া যায়নি অথবা প্রকাশিত নয়।",
+      };
+    }
+
+    // If reordering a subset of <= 8 books, reset any other books with displayOrder <= 8 to 10000
+    if (orderedBookIds.length <= 8) {
+      await Book.updateMany(
+        { displayOrder: { $lte: 8 }, _id: { $nin: orderedBookIds } },
+        { $set: { displayOrder: 10000 } }
+      );
+    }
+
+    // 6. Atomically update displayOrder in bulk
+    const bulkOperations = orderedBookIds.map((bookId, index) => ({
+      updateOne: {
+        filter: { _id: bookId },
+        update: { $set: { displayOrder: index + 1 } },
+      },
+    }));
+
+    await Book.bulkWrite(bulkOperations);
+
+    // 7. Revalidate affected paths
+    try {
+      revalidatePath("/");
+      revalidatePath("/admin/books");
+      revalidatePath("/books");
+    } catch (revalidateErr) {
+      console.warn("[adminReorderBooks] Non-fatal revalidation error:", revalidateErr);
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("adminReorderBooks error:", error);
+    return {
+      success: false,
+      error: "বই প্রদর্শনের ক্রম সংরক্ষণ করতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।",
+    };
+  }
+}
+
+

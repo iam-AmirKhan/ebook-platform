@@ -125,7 +125,18 @@ function parseChapters(formData: FormData) {
   try {
     const parsed = JSON.parse(chaptersJson);
     if (!Array.isArray(parsed)) return [];
-    return parsed;
+    // Ignore completely empty untouched chapter stubs so authors can save drafts incrementally
+    const nonEmpty = parsed.filter((ch) => {
+      if (!ch || typeof ch !== "object") return false;
+      const title = typeof ch.title === "string" ? ch.title.trim() : "";
+      const content = typeof ch.content === "string" ? ch.content.trim() : "";
+      const teaser = typeof ch.teaser === "string" ? ch.teaser.trim() : "";
+      return title.length > 0 || content.length > 0 || teaser.length > 0;
+    });
+    return nonEmpty.map((ch, idx) => ({
+      ...ch,
+      order: idx + 1,
+    }));
   } catch {
     return [];
   }
@@ -580,7 +591,7 @@ export async function unpublishBook(bookId: string): Promise<ActionResult> {
 
     const unpublishResult = await Book.updateOne(
       { _id: bookId, author: authorId, status: "PUBLISHED" },
-      { $set: { status: "DRAFT" } }
+      { $set: { status: "DRAFT", displayOrder: 10000 } }
     );
 
     if (unpublishResult.matchedCount === 0) {
@@ -590,6 +601,7 @@ export async function unpublishBook(bookId: string): Promise<ActionResult> {
       };
     }
 
+    revalidatePath("/");
     revalidatePath("/author");
     revalidatePath("/books");
     revalidatePath(`/books/${book.slug}`);
@@ -629,7 +641,7 @@ export async function archiveBook(bookId: string): Promise<ActionResult> {
 
     const archiveResult = await Book.updateOne(
       { _id: bookId, author: authorId, status: { $in: ["DRAFT", "PUBLISHED"] } },
-      { $set: { status: "ARCHIVED" } }
+      { $set: { status: "ARCHIVED", displayOrder: 10000 } }
     );
 
     if (archiveResult.matchedCount === 0) {
@@ -639,6 +651,7 @@ export async function archiveBook(bookId: string): Promise<ActionResult> {
       };
     }
 
+    revalidatePath("/");
     revalidatePath("/author");
     revalidatePath("/books");
     revalidatePath(`/books/${book.slug}`);

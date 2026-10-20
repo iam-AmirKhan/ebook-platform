@@ -3,12 +3,13 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/session";
 import {
   getFeaturedBooks,
-  getLatestBooks,
   getActiveCategories,
   getHomepageStats,
 } from "@/lib/data/homepage";
 import { BookGrid } from "@/components/books/BookGrid";
 import { CategoryList } from "@/components/categories/CategoryPill";
+import { SlowRevealQuote } from "@/components/home/SlowRevealQuote";
+import { BookOpen, CreditCard, Smartphone, Sparkles } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Pustoka — Bangladesh's Digital Book Marketplace",
@@ -31,16 +32,13 @@ function formatStat(value: number | null, placeholder: string): string {
 // ---------------------------------------------------------------------------
 export default async function HomePage() {
   // All fetches run in parallel — single round-trip to MongoDB per group
-  const [user, featuredBooks, latestBooks, categories, stats] =
+  const [user, featuredBooks, categories, stats] =
     await Promise.all([
       getCurrentUser(),
       getFeaturedBooks(),
-      getLatestBooks(),
       getActiveCategories(),
       getHomepageStats(),
     ]);
-
-  const showLatest = latestBooks.length > 0;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -156,6 +154,11 @@ export default async function HomePage() {
       </section>
 
       {/* ══════════════════════════════════════════════════
+          THE SLOW REVEAL QUOTE SECTION
+      ══════════════════════════════════════════════════ */}
+      <SlowRevealQuote />
+
+      {/* ══════════════════════════════════════════════════
           FEATURED BOOKS
       ══════════════════════════════════════════════════ */}
       <section
@@ -185,6 +188,7 @@ export default async function HomePage() {
 
         <BookGrid
           books={featuredBooks}
+          variant="home"
           emptyTitle="Catalogue coming soon"
           emptyMessage="We're adding books every day. Visit again shortly for new titles."
         />
@@ -223,89 +227,86 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════════════
-          LATEST BOOKS (only shown when enough published books exist)
-      ══════════════════════════════════════════════════ */}
-      {showLatest && (
-        <section
-          id="latest-books"
-          aria-labelledby="latest-heading"
-          className="mx-auto w-full max-w-7xl px-4 py-16 sm:px-6 lg:px-8"
-        >
-          <div className="mb-8 flex items-end justify-between">
-            <div>
-              <h2
-                id="latest-heading"
-                className="text-2xl font-bold tracking-tight text-foreground"
-              >
-                Latest Arrivals
-              </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Fresh titles added to the library
-              </p>
-            </div>
-            <Link
-              href="/books"
-              className="shrink-0 text-sm font-medium text-brand underline-offset-4 hover:underline"
-            >
-              View all →
-            </Link>
-          </div>
-
-          <BookGrid books={latestBooks} />
-        </section>
-      )}
 
       {/* ══════════════════════════════════════════════════
           WHY PUSTOKA — trust signals
       ══════════════════════════════════════════════════ */}
       <section
         aria-labelledby="why-heading"
-        className="border-t border-border/60 bg-muted/10"
+        className="border-t border-border/60 bg-muted/10 py-16 sm:py-20"
       >
-        <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-          <h2
-            id="why-heading"
-            className="mb-10 text-center text-2xl font-bold tracking-tight text-foreground"
-          >
-            Why read with Pustoka?
-          </h2>
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-2xl text-center mb-12">
+            <span className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-brand/30 bg-brand/10 px-3 py-0.5 text-xs font-semibold text-brand font-[family-name:var(--font-bengali)]">
+              আমাদের বৈশিষ্ট্য
+            </span>
+            <h2
+              id="why-heading"
+              className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl"
+            >
+              Why read with Pustoka?
+            </h2>
+            <p className="mt-2 text-sm sm:text-base text-muted-foreground font-[family-name:var(--font-bengali)]">
+              পাঠকদের জন্য আধুনিক ও সহজ ডিজিটাল বইয়ের সেরা ঠিকানা
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {[
               {
-                icon: "📚",
+                icon: BookOpen,
+                badge: "গুণগত মান",
                 title: "Curated Catalogue",
-                desc: "Every book is reviewed for quality before publication.",
+                titleBn: "বাছাইকৃত সেরা বই",
+                desc: "Every book is reviewed for quality before publication. Enjoy authentic works from verified authors.",
               },
               {
-                icon: "💳",
+                icon: CreditCard,
+                badge: "সহজ পেমেন্ট",
                 title: "Pay in BDT",
-                desc: "Checkout via bKash, Nagad, Rocket, or card — no international fees.",
+                titleBn: "বিকাশ ও নগদে পেমেন্ট",
+                desc: "Checkout easily via bKash, Nagad, or Rocket — no international credit cards or hidden fees required.",
               },
               {
-                icon: "☁️",
+                icon: Smartphone,
+                badge: "যেকোনো ডিভাইসে",
                 title: "Read Anywhere",
-                desc: "Your library is always with you, on any device.",
+                titleBn: "সহজ পাঠাভিজ্ঞতা",
+                desc: "Your personal library is securely synced and accessible anytime from your smartphone, tablet, or PC.",
               },
               {
-                icon: "✍️",
+                icon: Sparkles,
+                badge: "ন্যায্য রয়্যালটি",
                 title: "Support Local Authors",
-                desc: "Authors earn meaningful royalties on every sale.",
+                titleBn: "দেশীয় লেখকদের পাশে",
+                desc: "Authors earn transparent royalties on every purchase. Directly support Bangladeshi literature.",
               },
-            ].map(({ icon, title, desc }) => (
+            ].map(({ icon: Icon, badge, title, titleBn, desc }) => (
               <div
                 key={title}
-                className="flex flex-col items-start gap-3 rounded-xl border border-border/60 bg-card p-5"
+                className="group relative flex flex-col justify-between rounded-2xl border border-border/70 bg-card p-6 transition-all duration-300 hover:-translate-y-1 hover:border-brand/40 hover:shadow-xl hover:shadow-brand/5"
               >
-                <span className="text-2xl" role="img" aria-label={title}>
-                  {icon}
-                </span>
-                <h3 className="text-sm font-semibold text-foreground">
-                  {title}
-                </h3>
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  {desc}
-                </p>
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-4">
+                    <div className="flex size-12 items-center justify-center rounded-xl bg-brand/10 text-brand ring-1 ring-brand/20 transition-transform duration-300 group-hover:scale-105">
+                      <Icon className="size-6" />
+                    </div>
+                    <span className="rounded-full bg-muted/80 px-2.5 py-0.5 text-[10px] font-semibold text-muted-foreground font-[family-name:var(--font-bengali)]">
+                      {badge}
+                    </span>
+                  </div>
+
+                  <h3 className="text-base font-bold text-foreground">
+                    {title}
+                  </h3>
+                  <p className="text-xs font-medium text-brand mt-0.5 font-[family-name:var(--font-bengali)]">
+                    {titleBn}
+                  </p>
+
+                  <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                    {desc}
+                  </p>
+                </div>
               </div>
             ))}
           </div>

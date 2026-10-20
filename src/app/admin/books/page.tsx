@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft, BookOpen } from "lucide-react";
 import { requireAdmin } from "@/lib/auth/authorization";
-import { getAdminBooks, getAdminBookCounts } from "@/lib/data/admin-books";
+import {
+  getAdminBooks,
+  getAdminBookCounts,
+  getAdminPublishedBooksForReorder,
+} from "@/lib/data/admin-books";
 import { AdminBooksList } from "@/components/admin/books/AdminBooksList";
 
 export const metadata: Metadata = {
@@ -30,8 +34,8 @@ export default async function AdminBooksPage({
   const searchQuery = resolvedParams.q?.trim() || "";
   const page = Math.max(1, parseInt(resolvedParams.page || "1", 10) || 1);
 
-  // 3. Fetch books and counts concurrently
-  const [data, counts] = await Promise.all([
+  // 3. Fetch books, counts, and published books for ordering concurrently
+  const [data, counts, publishedBooksForReorder] = await Promise.all([
     getAdminBooks({
       status: statusFilter,
       q: searchQuery,
@@ -39,6 +43,7 @@ export default async function AdminBooksPage({
       limit: 15,
     }),
     getAdminBookCounts(),
+    getAdminPublishedBooksForReorder(),
   ]);
 
   return (
@@ -83,6 +88,7 @@ export default async function AdminBooksPage({
           currentPage={data.currentPage}
           activeFilter={statusFilter}
           searchQuery={searchQuery}
+          publishedBooksForReorder={publishedBooksForReorder}
         />
       </div>
     </div>
