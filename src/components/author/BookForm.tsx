@@ -516,18 +516,29 @@ export function BookForm({
               বই প্রকাশের জন্য কমপক্ষে ৫টি পূর্ণাঙ্গ অধ্যায় আবশ্যক (বর্তমান পূর্ণাঙ্গ: {countSubstantiveChapters(chapters)}টি)
             </p>
           </div>
-          <button
-            type="button"
-            onClick={addChapter}
-            className="flex h-8 items-center gap-1.5 rounded-lg bg-brand/10 px-3 text-xs font-semibold text-brand transition-colors hover:bg-brand/20 font-[family-name:var(--font-bengali)]"
-          >
-            + অধ্যায় যোগ করুন
-          </button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="submit"
+              disabled={isPending}
+              variant="outline"
+              size="sm"
+              className="font-[family-name:var(--font-bengali)] h-8 text-xs"
+            >
+              {isPending ? "সংরক্ষণ হচ্ছে…" : "ড্রাফট সংরক্ষণ করুন"}
+            </Button>
+            <button
+              type="button"
+              onClick={addChapter}
+              className="flex h-8 items-center gap-1.5 rounded-lg bg-brand/10 px-3 text-xs font-semibold text-brand transition-colors hover:bg-brand/20 font-[family-name:var(--font-bengali)]"
+            >
+              + অধ্যায় যোগ করুন
+            </button>
+          </div>
         </div>
 
         {countSubstantiveChapters(chapters) < 5 && (
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-200 font-[family-name:var(--font-bengali)]">
-            বই প্রকাশের জন্য কমপক্ষে ৫টি পূর্ণাঙ্গ ও অর্থপূর্ণ অধ্যায় (প্রতিটিতে অন্তত ৫০ অক্ষর) প্রয়োজন। বর্তমানে {countSubstantiveChapters(chapters)}টি পূর্ণাঙ্গ অধ্যায় রয়েছে।
+            বই প্রকাশের জন্য কমপক্ষে ৫টি পূর্ণাঙ্গ ও অর্থপূর্ণ অধ্যায় (প্রতিটিতে অন্তত ৫০ অক্ষর) প্রয়োজন। বর্তমানে {countSubstantiveChapters(chapters)}টি পূর্ণাঙ্গ অধ্যায় রয়েছে। আপনি একটি করে অধ্যায় লিখে ড্রাফট সংরক্ষণ করতে পারেন এবং পরবর্তীতে আরও অধ্যায় যোগ করতে পারবেন।
           </div>
         )}
 
@@ -544,6 +555,7 @@ export function BookForm({
               chapter={ch}
               index={idx}
               total={chapters.length}
+              isPending={isPending}
               isExpanded={expandedChapter === ch._key}
               onToggle={() =>
                 setExpandedChapter((prev) =>
@@ -600,6 +612,7 @@ interface ChapterEditorProps {
   index: number;
   total: number;
   isExpanded: boolean;
+  isPending?: boolean;
   onToggle: () => void;
   onChange: (field: keyof ChapterFormData, value: string | boolean | number) => void;
   onRemove: () => void;
@@ -611,6 +624,7 @@ function ChapterEditor({
   index,
   total,
   isExpanded,
+  isPending,
   onToggle,
   onChange,
   onRemove,
@@ -744,6 +758,21 @@ function ChapterEditor({
               বিনামূল্যে প্রিভিউ (সবাই পড়তে পারবেন)
             </span>
           </label>
+
+          {/* Chapter Draft Save Action */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-border/40">
+            <Button
+              type="submit"
+              disabled={isPending}
+              size="sm"
+              className="font-[family-name:var(--font-bengali)] gap-1.5"
+            >
+              {isPending ? "সংরক্ষণ হচ্ছে…" : "অধ্যায় সংরক্ষণ করুন"}
+            </Button>
+            <span className="text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
+              অধ্যায়টি ড্রাফট হিসেবে সংরক্ষিত থাকবে।
+            </span>
+          </div>
         </div>
       )}
     </li>

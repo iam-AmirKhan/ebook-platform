@@ -14,10 +14,14 @@ export interface IAuthorApplication {
   phone?: string | null;
   address?: string | null;
   occupation?: string | null;
+  socialUrl?: string | null;
   socialLinks?: IAuthorApplicationSocialLink[];
   bio: string;
   reason: string;
   status: AuthorApplicationStatus;
+  reviewedBy?: Types.ObjectId | null;
+  reviewedAt?: Date | null;
+  rejectionReason?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -84,6 +88,12 @@ const AuthorApplicationSchema = new Schema<IAuthorApplicationDocument>(
       maxlength: 120,
       default: null,
     },
+    socialUrl: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: null,
+    },
     socialLinks: {
       type: [AuthorApplicationSocialLinkSchema],
       default: [],
@@ -106,6 +116,21 @@ const AuthorApplicationSchema = new Schema<IAuthorApplicationDocument>(
       default: "PENDING",
       required: true,
     },
+    reviewedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    reviewedAt: {
+      type: Date,
+      default: null,
+    },
+    rejectionReason: {
+      type: String,
+      trim: true,
+      maxlength: 1000,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -122,6 +147,8 @@ AuthorApplicationSchema.index(
 );
 
 AuthorApplicationSchema.index({ user: 1, createdAt: -1 });
+AuthorApplicationSchema.index({ status: 1, createdAt: -1 });
+AuthorApplicationSchema.index({ createdAt: -1 });
 
 // Prevent OverwriteModelError during Next.js hot reload
 const AuthorApplication: Model<IAuthorApplicationDocument> =

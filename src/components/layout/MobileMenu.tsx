@@ -10,6 +10,7 @@ import {
   getWriteNavHref,
   getProfileNavHref,
 } from "@/lib/auth/navigation";
+import { CartNavButton } from "@/components/cart/CartNavButton";
 
 interface MobileMenuProps {
   isAuthenticated: boolean;
@@ -220,6 +221,11 @@ export function MobileMenu({
                   </li>
                 );
               })()}
+
+              {/* Shopping Cart Link */}
+              <li>
+                <CartNavButton showLabel onNavigate={() => setIsOpen(false)} />
+              </li>
             </ul>
           </nav>
 

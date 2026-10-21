@@ -17,11 +17,14 @@ interface AuthorApplicationFormProps {
 
 interface AuthorDraftData {
   displayName?: string;
+  email?: string;
   phone?: string;
   occupation?: string;
   address?: string;
   bio?: string;
   reason?: string;
+  socialUrl?: string;
+  // Legacy fields for backward compatibility with existing session drafts
   socialPlatforms?: string[];
   socialUrls?: string[];
 }
@@ -33,12 +36,6 @@ const textareaClass = `${inputClass} min-h-[140px] resize-y font-[family-name:va
 
 const labelClass =
   "block text-sm font-medium text-foreground mb-1.5 font-[family-name:var(--font-bengali)]";
-
-const socialLinkRows = [
-  { index: 0, required: true },
-  { index: 1, required: false },
-  { index: 2, required: false },
-];
 
 const DRAFT_STORAGE_KEY = "pustoka_author_application_draft";
 
@@ -58,8 +55,6 @@ function readSavedDraft(): AuthorDraftData | null {
 
 export function AuthorApplicationForm({
   isAuthenticated = true,
-  defaultDisplayName,
-  email,
 }: AuthorApplicationFormProps) {
   const router = useRouter();
   const initialState: AuthorApplicationActionResult = { success: false };
@@ -72,18 +67,16 @@ export function AuthorApplicationForm({
   const [savedDraft] = useState<AuthorDraftData | null>(readSavedDraft);
 
   const [displayName, setDisplayName] = useState(
-    () => savedDraft?.displayName || defaultDisplayName || ""
+    () => savedDraft?.displayName || ""
   );
+  const [email, setEmail] = useState(() => savedDraft?.email || "");
   const [phone, setPhone] = useState(() => savedDraft?.phone || "");
   const [occupation, setOccupation] = useState(() => savedDraft?.occupation || "");
   const [address, setAddress] = useState(() => savedDraft?.address || "");
   const [bio, setBio] = useState(() => savedDraft?.bio || "");
   const [reason, setReason] = useState(() => savedDraft?.reason || "");
-  const [socialPlatforms, setSocialPlatforms] = useState<string[]>(
-    () => savedDraft?.socialPlatforms || ["", "", ""]
-  );
-  const [socialUrls, setSocialUrls] = useState<string[]>(
-    () => savedDraft?.socialUrls || ["", "", ""]
+  const [socialUrl, setSocialUrl] = useState(
+    () => savedDraft?.socialUrl || savedDraft?.socialUrls?.[0] || ""
   );
   const [draftRestored] = useState<boolean>(() => !!savedDraft);
 
@@ -93,13 +86,13 @@ export function AuthorApplicationForm({
       e.preventDefault();
       const draft: AuthorDraftData = {
         displayName,
+        email,
         phone,
         occupation,
         address,
         bio,
         reason,
-        socialPlatforms,
-        socialUrls,
+        socialUrl,
       };
       try {
         sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
@@ -108,22 +101,6 @@ export function AuthorApplicationForm({
       }
       router.push(`/login?callbackUrl=${encodeURIComponent("/become-author")}`);
     }
-  };
-
-  const updateSocialPlatform = (idx: number, val: string) => {
-    setSocialPlatforms((prev) => {
-      const next = [...prev];
-      next[idx] = val;
-      return next;
-    });
-  };
-
-  const updateSocialUrl = (idx: number, val: string) => {
-    setSocialUrls((prev) => {
-      const next = [...prev];
-      next[idx] = val;
-      return next;
-    });
   };
 
   return (
@@ -213,22 +190,13 @@ export function AuthorApplicationForm({
           </label>
           <input
             id="applicationEmail"
+            name="email"
             type="email"
-            value={email ?? ""}
-            readOnly
-            aria-readonly="true"
-            placeholder={
-              isAuthenticated
-                ? "অ্যাকাউন্ট ইমেইল"
-                : "লগইন করার পর অ্যাকাউন্ট ইমেইল স্বয়ংক্রিয়ভাবে যুক্ত হবে"
-            }
-            className={`${inputClass} bg-muted/40 text-muted-foreground font-[family-name:var(--font-bengali)]`}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="আপনার ইমেইল ঠিকানা লিখুন"
+            className={`${inputClass} font-[family-name:var(--font-bengali)] text-base`}
           />
-          <p className="mt-1 text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
-            {isAuthenticated
-              ? "আপনার অ্যাকাউন্টের সাথে সংযুক্ত ভেরিফাইড ইমেইল।"
-              : "নিরাপত্তার স্বার্থে আবেদনটি আপনার অনুমোদিত অ্যাকাউন্টের সাথে লিংক করা হবে।"}
-          </p>
         </div>
       </div>
 
@@ -310,71 +278,36 @@ export function AuthorApplicationForm({
         )}
       </div>
 
-      <fieldset className="space-y-3">
-        <legend className={labelClass}>
-          সামাজিক মাধ্যমের লিংক <span className="text-destructive">*</span>
-        </legend>
-        <p className="text-xs text-muted-foreground font-[family-name:var(--font-bengali)] -mt-1">
-          কমপক্ষে একটি সামাজিক মাধ্যম বা ব্যক্তিগত ওয়েবসাইটের লিংক প্রদান করুন (যেমন: ফেসবুক, লিংকডইন বা ওয়েবসাইট)।
+      <div>
+        <label htmlFor="socialUrl" className={labelClass}>
+          সোশ্যাল মিডিয়া প্রোফাইল লিংক <span className="text-destructive">*</span>
+        </label>
+        <input
+          id="socialUrl"
+          name="socialUrl"
+          type="url"
+          required
+          value={socialUrl}
+          onChange={(e) => setSocialUrl(e.target.value)}
+          placeholder="https://facebook.com/your-profile"
+          className={`${inputClass} font-[family-name:var(--font-bengali)] text-base`}
+          dir="ltr"
+          aria-describedby={
+            state.fieldErrors?.socialUrl ? "socialUrl-error" : undefined
+          }
+        />
+        <p className="mt-1 text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
+          আবেদন যাচাইয়ের জন্য আপনার যেকোনো একটি সক্রিয় ও পাবলিক সোশ্যাল মিডিয়া প্রোফাইল লিংক দেওয়া আবশ্যক (যেমন: Facebook, Instagram, LinkedIn, X, YouTube, Threads, বা GitHub)।
         </p>
-        <div className="space-y-3">
-          {socialLinkRows.map(({ index, required }) => (
-            <div key={index} className="grid gap-3 sm:grid-cols-[1fr_2fr]">
-              <div>
-                <label
-                  htmlFor={`socialPlatform-${index}`}
-                  className="sr-only"
-                >
-                  প্ল্যাটফর্ম
-                </label>
-                <input
-                  id={`socialPlatform-${index}`}
-                  name="socialPlatform"
-                  type="text"
-                  required={required}
-                  value={socialPlatforms[index] ?? ""}
-                  onChange={(e) => updateSocialPlatform(index, e.target.value)}
-                  placeholder={index === 0 ? "যেমন: Facebook" : "প্ল্যাটফর্ম (ঐচ্ছিক)"}
-                  className={`${inputClass} font-[family-name:var(--font-bengali)] text-base`}
-                  aria-describedby={
-                    state.fieldErrors?.socialLinks
-                      ? "socialLinks-error"
-                      : undefined
-                  }
-                />
-              </div>
-              <div>
-                <label htmlFor={`socialUrl-${index}`} className="sr-only">
-                  URL
-                </label>
-                <input
-                  id={`socialUrl-${index}`}
-                  name="socialUrl"
-                  type="url"
-                  required={required}
-                  value={socialUrls[index] ?? ""}
-                  onChange={(e) => updateSocialUrl(index, e.target.value)}
-                  placeholder="https://example.com/your-profile"
-                  className={inputClass}
-                  aria-describedby={
-                    state.fieldErrors?.socialLinks
-                      ? "socialLinks-error"
-                      : undefined
-                  }
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-        {state.fieldErrors?.socialLinks && (
+        {state.fieldErrors?.socialUrl && (
           <p
-            id="socialLinks-error"
+            id="socialUrl-error"
             className="mt-1 text-xs text-destructive font-[family-name:var(--font-bengali)]"
           >
-            {state.fieldErrors.socialLinks[0]}
+            {state.fieldErrors.socialUrl[0]}
           </p>
         )}
-      </fieldset>
+      </div>
 
       <div>
         <label htmlFor="bio" className={labelClass}>
@@ -437,8 +370,8 @@ export function AuthorApplicationForm({
           {!isAuthenticated
             ? "আবেদন জমা দিন (লগইন প্রয়োজন)"
             : isPending
-            ? "জমা হচ্ছে..."
-            : "আবেদন জমা দিন"}
+              ? "জমা হচ্ছে..."
+              : "আবেদন জমা দিন"}
         </Button>
         {!isAuthenticated && (
           <p className="text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">

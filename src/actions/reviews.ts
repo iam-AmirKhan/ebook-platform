@@ -66,27 +66,35 @@ export async function submitBookReview(
   try {
     await dbConnect();
 
-    // 2. Access control: verify verified active purchase
-    const hasPurchased = await Purchase.exists({
-      user: new Types.ObjectId(user.id),
-      book: new Types.ObjectId(bookId),
-      status: "ACTIVE",
-    });
+    // 2. Verify book exists and is published
+    const book = await Book.findById(bookId)
+      .select("slug status price discountPrice")
+      .lean();
 
-    if (!hasPurchased) {
-      return {
-        success: false,
-        error: "শুধুমাত্র বইটি ক্রয়কারী পাঠকরাই পর্যালোচনা ও রেটিং দিতে পারবেন।",
-      };
-    }
-
-    // 3. Verify book exists and is published
-    const book = await Book.findById(bookId).select("slug status").lean();
     if (!book || book.status !== "PUBLISHED") {
       return {
         success: false,
         error: "বইটি খুঁজে পাওয়া যায়নি অথবা এটি বর্তমানে উপলব্ধ নেই।",
       };
+    }
+
+    // 3. Access control: free books can be reviewed by any authenticated reader.
+    // Paid books require an ACTIVE purchase record.
+    const isFreeBook = book.price === 0 || (book.discountPrice !== null && book.discountPrice === 0);
+
+    if (!isFreeBook) {
+      const hasPurchased = await Purchase.exists({
+        user: new Types.ObjectId(user.id),
+        book: new Types.ObjectId(bookId),
+        status: "ACTIVE",
+      });
+
+      if (!hasPurchased) {
+        return {
+          success: false,
+          error: "শুধুমাত্র বইটি ক্রয়কারী পাঠকরাই পর্যালোচনা ও রেটিং দিতে পারবেন।",
+        };
+      }
     }
 
     // 4. One review per user per book: upsert with status = PENDING
@@ -108,8 +116,12 @@ export async function submitBookReview(
     );
 
     // 5. Revalidate relevant paths
-    revalidatePath(`/books/${book.slug}`);
-    revalidatePath("/admin/reviews");
+    try {
+      revalidatePath(`/books/${book.slug}`);
+      revalidatePath("/admin/reviews");
+    } catch {
+      // Revalidation may fail in non-request or test environments
+    }
 
     return {
       success: true,

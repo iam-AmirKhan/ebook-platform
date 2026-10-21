@@ -50,6 +50,8 @@ export interface BookDetails {
    * Locked chapter content is null. The array is sorted by `order` ascending.
    */
   chapters: ChapterPreview[];
+  /** Whether the current requesting user has active ownership/purchase of the book. */
+  isOwned?: boolean;
 }
 
 export interface BookReview {

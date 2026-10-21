@@ -233,19 +233,30 @@ export default async function BecomeAuthorPage() {
                 </p>
                 {application.socialLinks && application.socialLinks.length > 0 ? (
                   <ul className="mt-1 space-y-1 text-muted-foreground">
-                    {application.socialLinks.map((link) => (
-                      <li key={`${link.platform}-${link.url}`}>
+                    {application.socialLinks.map((link, idx) => (
+                      <li key={`${link.platform}-${link.url}-${idx}`}>
                         <a
                           href={link.url}
                           target="_blank"
-                          rel="noreferrer"
+                          rel="noreferrer noopener"
                           className="text-brand underline-offset-4 hover:underline"
                         >
-                          {displayApplicationValue(link.platform)}
+                          {displayApplicationValue(link.platform || link.url)}
                         </a>
                       </li>
                     ))}
                   </ul>
+                ) : application.socialUrl ? (
+                  <p className="mt-1 text-muted-foreground font-[family-name:var(--font-bengali)]">
+                    <a
+                      href={application.socialUrl}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="text-brand underline-offset-4 hover:underline"
+                    >
+                      {application.socialUrl}
+                    </a>
+                  </p>
                 ) : (
                   <p className="mt-1 text-muted-foreground font-[family-name:var(--font-bengali)]">
                     {MISSING_APPLICATION_VALUE}
@@ -276,8 +287,6 @@ export default async function BecomeAuthorPage() {
 
             <AuthorApplicationForm
               isAuthenticated={!!user}
-              defaultDisplayName={user?.name}
-              email={user?.email}
             />
           </section>
         )}

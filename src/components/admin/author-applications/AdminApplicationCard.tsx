@@ -220,23 +220,35 @@ export function AdminApplicationCard({
       </div>
 
       {/* Social Links Summary */}
-      {application.socialLinks.length > 0 && (
+      {((application.socialLinks && application.socialLinks.length > 0) || application.socialUrl) && (
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
           <span className="font-medium text-foreground/70 font-[family-name:var(--font-bengali)]">
             সোশ্যাল লিংক:
           </span>
-          {application.socialLinks.map((link, idx) => (
+          {application.socialLinks && application.socialLinks.length > 0 ? (
+            application.socialLinks.map((link, idx) => (
+              <a
+                key={`${link.platform}-${link.url}-${idx}`}
+                href={link.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs font-medium text-brand transition-colors hover:border-brand/40 hover:bg-brand/5"
+              >
+                <span>{link.platform || link.url}</span>
+                <ExternalLink className="size-3" />
+              </a>
+            ))
+          ) : application.socialUrl ? (
             <a
-              key={`${link.platform}-${link.url}-${idx}`}
-              href={link.url}
+              href={application.socialUrl}
               target="_blank"
               rel="noreferrer noopener"
               className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs font-medium text-brand transition-colors hover:border-brand/40 hover:bg-brand/5"
             >
-              <span>{link.platform}</span>
+              <span>{application.socialUrl}</span>
               <ExternalLink className="size-3" />
             </a>
-          ))}
+          ) : null}
         </div>
       )}
 

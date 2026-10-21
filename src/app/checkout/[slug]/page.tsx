@@ -34,6 +34,11 @@ export async function generateMetadata({
 
 export default async function CheckoutPage({ params }: CheckoutPageProps) {
   const resolvedParams = await params;
+
+  if (resolvedParams.slug === "cart") {
+    redirect("/checkout/cart");
+  }
+
   const user = await getCurrentUser();
 
   if (!user?.id) {

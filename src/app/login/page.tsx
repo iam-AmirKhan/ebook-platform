@@ -166,7 +166,7 @@ function LoginForm() {
               {...register("email")}
               autoComplete="email"
               className="flex h-10 w-full rounded-md border border-gray-300 bg-transparent px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent dark:border-gray-700 dark:focus:ring-gray-100"
-              placeholder="john@example.com"
+              placeholder="আপনার ইমেইল ঠিকানা লিখুন"
             />
             {errors.email && <p className="text-sm text-red-500">{errors.email.message}</p>}
           </div>

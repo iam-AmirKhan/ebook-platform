@@ -6,6 +6,9 @@ import { getAccountDashboardData } from "@/lib/data/account";
 import { LibraryBookCard } from "@/components/account/LibraryBookCard";
 import { PurchaseHistoryList } from "@/components/account/PurchaseHistoryList";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export const metadata: Metadata = {
   title: "My Account | Pustoka",
   description: "Manage your digital library, reading progress, and purchases.",
@@ -17,7 +20,7 @@ export default async function AccountPage() {
 
   // 2. Fetch all dashboard data using the isolated server module
   const dashboardData = await getAccountDashboardData(user.id);
-  const { library, recentReads, purchaseHistory } = dashboardData;
+  const { library, recentReads, purchaseHistory, orders = [] } = dashboardData;
 
   // 3. Server Action for signing out
   const handleSignOut = async () => {
@@ -147,6 +150,82 @@ export default async function AccountPage() {
             </div>
           )}
         </section>
+
+        {/* Manual Orders / Payment Verification */}
+        {orders.length > 0 && (
+          <section aria-labelledby="orders-heading">
+            <h2
+              id="orders-heading"
+              className="mb-4 text-lg font-bold tracking-tight text-foreground font-[family-name:var(--font-bengali)]"
+            >
+              আমার অর্ডার ও পেমেন্ট হিস্ট্রি (Orders & Payment Status)
+            </h2>
+            <div className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-xs">
+              <div className="divide-y divide-border/60">
+                {orders.map((order) => (
+                  <div
+                    key={order._id}
+                    className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-bold text-foreground">
+                          #{order.orderNumber}
+                        </span>
+                        <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
+                          {order.paymentMethod}
+                        </span>
+                        {order.status === "PENDING" && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-400 font-[family-name:var(--font-bengali)]">
+                            <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            যাচাইাধীন (Pending)
+                          </span>
+                        )}
+                        {order.status === "PAID" && (
+                          <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 font-[family-name:var(--font-bengali)]">
+                            অনুমোদিত (Verified)
+                          </span>
+                        )}
+                        {order.status === "CANCELLED" && (
+                          <span className="rounded-full border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[11px] font-semibold text-destructive font-[family-name:var(--font-bengali)]">
+                            বাতিল (Cancelled)
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1">
+                        <p className="text-sm font-semibold text-foreground font-[family-name:var(--font-bengali)]">
+                          {order.bookTitle}
+                        </p>
+                        {order.items && order.items.length > 1 && (
+                          <div className="mt-1 text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
+                            {order.items.map((it, idx) => (
+                              <span key={idx} className="mr-2 inline-block">
+                                • {it.title} (৳{it.price.toLocaleString()})
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {order.transactionId && (
+                        <p className="mt-1 text-xs text-muted-foreground font-mono">
+                          TrxID: {order.transactionId}
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-right sm:self-center">
+                      <p className="text-sm font-bold text-foreground">
+                        {order.currency} {order.price.toLocaleString()}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {new Date(order.createdAt).toLocaleDateString("bn-BD")}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Purchase History */}
         <section aria-labelledby="history-heading">

@@ -9,8 +9,19 @@ import dbConnect from "@/lib/db/mongoose";
 import Book from "@/models/Book";
 import Category from "@/models/Category";
 import Author from "@/models/Author";
-import type { AuthorBookListItem, BookFormData, CategoryOption } from "@/types/author";
-import type { Types } from "mongoose";
+import FinancialLedger from "@/models/FinancialLedger";
+import Withdrawal from "@/models/Withdrawal";
+import { calculateAuthorBalances } from "@/lib/services/finance";
+import type {
+  AuthorBookListItem,
+  AuthorBookSaleItem,
+  AuthorFinancialSummary,
+  AuthorProfileData,
+  AuthorWithdrawalItem,
+  BookFormData,
+  CategoryOption,
+} from "@/types/author";
+import { Types } from "mongoose";
 
 // ---------------------------------------------------------------------------
 // Look up the Author document for the given User._id.
@@ -133,5 +144,167 @@ export async function getActiveCategories(): Promise<CategoryOption[]> {
     _id: String(c._id),
     name: c.name,
     slug: c.slug,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Fetch author full profile data (display name, bio, image, user details).
+// ---------------------------------------------------------------------------
+export async function getAuthorFullProfile(
+  userId: string
+): Promise<AuthorProfileData | null> {
+  await dbConnect();
+
+  await import("@/models/User");
+
+  const author = await Author.findOne({ user: userId, status: "ACTIVE" })
+    .populate<{ user: { name: string; email: string } }>("user", "name email")
+    .lean();
+
+  if (!author) return null;
+
+  return {
+    _id: String(author._id),
+    userId: String(author.user ? (author.user as unknown as { _id?: unknown })._id ?? userId : userId),
+    penName: author.penName,
+    slug: author.slug,
+    bio: author.bio ?? null,
+    profileImage: author.profileImage ?? null,
+    name: author.user?.name ?? "",
+    email: author.user?.email ?? "",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Fetch author financial summary (lifetime, available, pending, withdrawn).
+// ---------------------------------------------------------------------------
+export async function getAuthorFinancialSummary(
+  authorId: string
+): Promise<AuthorFinancialSummary> {
+  return calculateAuthorBalances(authorId);
+}
+
+// ---------------------------------------------------------------------------
+// Fetch per-book sales and earnings stats for this author.
+// ---------------------------------------------------------------------------
+export async function getAuthorBookSales(
+  authorId: string
+): Promise<AuthorBookSaleItem[]> {
+  await dbConnect();
+
+  const aId = new Types.ObjectId(authorId);
+
+  // 1. Fetch all books by this author
+  const books = await Book.find({ author: aId })
+    .sort({ createdAt: -1 })
+    .select("_id title slug coverImage status price")
+    .lean();
+
+  if (books.length === 0) return [];
+
+  // 2. Aggregate sales and author earnings per book from ledger
+  const salesAgg = await FinancialLedger.aggregate<{
+    _id: { book: Types.ObjectId; type: string };
+    total: number;
+    count: number;
+  }>([
+    {
+      $match: {
+        author: aId,
+        book: { $in: books.map((b) => b._id) },
+        type: { $in: ["SALE", "AUTHOR_EARNING"] },
+      },
+    },
+    {
+      $group: {
+        _id: { book: "$book", type: "$type" },
+        total: { $sum: "$amount" },
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+
+  const statsMap = new Map<
+    string,
+    { unitsSold: number; grossSales: number; authorEarnings: number }
+  >();
+
+  for (const item of salesAgg) {
+    const bookIdStr = String(item._id.book);
+    const existing = statsMap.get(bookIdStr) ?? {
+      unitsSold: 0,
+      grossSales: 0,
+      authorEarnings: 0,
+    };
+
+    if (item._id.type === "SALE") {
+      existing.unitsSold += item.count;
+      existing.grossSales += item.total;
+    } else if (item._id.type === "AUTHOR_EARNING") {
+      existing.authorEarnings += item.total;
+    }
+
+    statsMap.set(bookIdStr, existing);
+  }
+
+  return books.map((b) => {
+    const idStr = String(b._id);
+    const stats = statsMap.get(idStr) ?? {
+      unitsSold: 0,
+      grossSales: 0,
+      authorEarnings: 0,
+    };
+    return {
+      bookId: idStr,
+      title: b.title,
+      slug: b.slug,
+      coverImage: b.coverImage ?? null,
+      status: b.status as "DRAFT" | "PUBLISHED" | "ARCHIVED",
+      price: b.price,
+      unitsSold: stats.unitsSold,
+      grossSales: stats.grossSales,
+      authorEarnings: stats.authorEarnings,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Fetch author withdrawal history with status and timeline.
+// ---------------------------------------------------------------------------
+export async function getAuthorWithdrawalHistory(
+  authorId: string
+): Promise<AuthorWithdrawalItem[]> {
+  await dbConnect();
+
+  const withdrawals = await Withdrawal.find({
+    author: new Types.ObjectId(authorId),
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return withdrawals.map((w) => ({
+    _id: String(w._id),
+    amount: w.amount,
+    currency: w.currency,
+    payoutMethod: w.payoutMethod as "BKASH" | "NAGAD",
+    payoutAccountNumber: w.payoutAccountNumber,
+    status: w.status as "PENDING" | "ACCEPTED" | "PAID" | "REJECTED" | "CANCELLED",
+    rejectionReason: w.rejectionReason ?? null,
+    cancellationReason: w.cancellationReason ?? null,
+    paymentTransactionId: w.paymentTransactionId ?? null,
+    createdAt:
+      w.createdAt instanceof Date ? w.createdAt.toISOString() : String(w.createdAt),
+    reviewedAt:
+      w.reviewedAt instanceof Date
+        ? w.reviewedAt.toISOString()
+        : w.reviewedAt
+        ? String(w.reviewedAt)
+        : null,
+    paidAt:
+      w.paidAt instanceof Date
+        ? w.paidAt.toISOString()
+        : w.paidAt
+        ? String(w.paidAt)
+        : null,
   }));
 }

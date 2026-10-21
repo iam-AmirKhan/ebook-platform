@@ -5,6 +5,8 @@ import { DesktopNav } from "@/components/layout/DesktopNav";
 import { signOut } from "@/lib/auth/auth";
 import { getWriteNavHref, getProfileNavHref } from "@/lib/auth/navigation";
 
+import { CartNavButton } from "@/components/cart/CartNavButton";
+
 export async function Navbar() {
   const user = await getCurrentUser();
   const writeHref = getWriteNavHref(user?.role);
@@ -36,8 +38,11 @@ export async function Navbar() {
         {/* Desktop navigation */}
         <DesktopNav writeHref={writeHref} />
 
-        {/* Desktop auth controls */}
+        {/* Desktop auth & cart controls */}
         <div className="hidden items-center gap-2 md:flex">
+          {/* Cart Icon & Live Badge */}
+          <CartNavButton />
+
           {user ? (
             <>
               {user.role === "USER" && (
@@ -129,8 +134,11 @@ export async function Navbar() {
           )}
         </div>
 
-        {/* Mobile menu (client component) */}
-        <MobileMenu isAuthenticated={!!user} userName={user?.name} userRole={user?.role} />
+        {/* Mobile controls: Cart icon + hamburger menu */}
+        <div className="flex items-center gap-1 md:hidden">
+          <CartNavButton />
+          <MobileMenu isAuthenticated={!!user} userName={user?.name} userRole={user?.role} />
+        </div>
       </div>
     </header>
   );

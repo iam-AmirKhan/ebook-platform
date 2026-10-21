@@ -154,3 +154,50 @@
     border-color: var(--color-brand);
   }
 }
+
+/* ==========================================================================
+   Compact Horizontally Moving Quote Strip
+   ========================================================================== */
+.slow-reveal-paper-bg {
+  background: radial-gradient(ellipse 80% 60% at 50% 50%, #FDFBF7 0%, #F5EFE4 100%);
+}
+
+.dark .slow-reveal-paper-bg,
+:is(.dark) .slow-reveal-paper-bg,
+:is(.dark *) .slow-reveal-paper-bg {
+  background: radial-gradient(ellipse 80% 60% at 50% 50%, #1A1715 0%, #13110F 100%);
+}
+
+@keyframes quoteMarquee {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.quote-marquee-track {
+  display: flex;
+  width: max-content;
+  will-change: transform;
+  animation: quoteMarquee 45s linear infinite;
+}
+
+.quote-marquee-track:hover,
+.quote-marquee-track:focus-within {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quote-marquee-track {
+    animation: none !important;
+    transform: none !important;
+    width: 100% !important;
+    justify-content: center !important;
+  }
+  .quote-marquee-duplicate,
+  .quote-marquee-item-duplicate {
+    display: none !important;
+  }
+}

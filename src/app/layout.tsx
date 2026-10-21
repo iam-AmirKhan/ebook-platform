@@ -3,6 +3,8 @@ import { Inter, Hind_Siliguri } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
+import { MessengerChatButton } from "@/components/layout/MessengerChatButton";
+import { CartProvider } from "@/context/CartContext";
 
 // Clean Latin sans font for numbers, English text, and modern UI
 const inter = Inter({
@@ -39,13 +41,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       className={`${inter.variable} ${hindSiliguri.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col bg-background text-foreground">
-        <Navbar />
-        <main id="main-content" className="flex flex-1 flex-col">
-          {children}
-        </main>
-        <Footer />
+      <body
+        className="min-h-full flex flex-col bg-background text-foreground"
+        suppressHydrationWarning
+      >
+        <CartProvider>
+          <Navbar />
+          <main id="main-content" className="flex flex-1 flex-col">
+            {children}
+          </main>
+          <Footer />
+          <MessengerChatButton />
+        </CartProvider>
       </body>
     </html>
   );

@@ -67,12 +67,6 @@ export async function getFeaturedBooks(): Promise<HomepageBook[]> {
   try {
     await dbConnect();
 
-    // Ensure legacy documents without displayOrder default to 10000 so they don't precede numbers
-    await Book.updateMany(
-      { $or: [{ displayOrder: { $exists: false } }, { displayOrder: null }] },
-      { $set: { displayOrder: 10000 } }
-    );
-
     // Only books explicitly ranked by the admin (displayOrder 1–FEATURED_LIMIT)
     const raw = await Book.find({
       status: "PUBLISHED",

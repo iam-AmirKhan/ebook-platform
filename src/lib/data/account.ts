@@ -1,10 +1,12 @@
 import { Types } from "mongoose";
 import dbConnect from "@/lib/db/mongoose";
 import Purchase from "@/models/Purchase";
+import Order from "@/models/Order";
 import ReadingProgress, { type IReadingProgressDocument } from "@/models/ReadingProgress";
 import type {
   LibraryBook,
   PurchaseHistoryItem,
+  UserOrderItem,
   AccountDashboardData,
 } from "@/types/account";
 import "@/models/Book"; // Ensure Book is registered for population
@@ -16,6 +18,15 @@ export async function getAccountDashboardData(
 ): Promise<AccountDashboardData> {
   await dbConnect();
 
+  if (!userId || !Types.ObjectId.isValid(userId)) {
+    return {
+      library: [],
+      recentReads: [],
+      purchaseHistory: [],
+      orders: [],
+    };
+  }
+
   // 1. Fetch all ACTIVE purchases for the user (to build the library)
   // Populate the book, and nested author + category
   const activePurchases = await Purchase.find({
@@ -26,7 +37,6 @@ export async function getAccountDashboardData(
     .populate({
       path: "book",
       select: "title slug coverImage author category status",
-      match: { status: "PUBLISHED" }, // Only include if the book is still published
       populate: [
         { path: "author", select: "penName" },
         { path: "category", select: "name" },
@@ -34,7 +44,7 @@ export async function getAccountDashboardData(
     })
     .lean();
 
-  // Filter out purchases where the book was not found or not published
+  // Filter out purchases where the book was deleted or missing from database
   const validPurchases = activePurchases.filter((p) => p.book != null);
 
   interface PopulatedBook {
@@ -113,9 +123,40 @@ export async function getAccountDashboardData(
     purchasedAt: p.purchasedAt instanceof Date ? p.purchasedAt.toISOString() : String(p.purchasedAt),
   }));
 
+  // 6. Fetch user manual orders
+  const userOrders = await Order.find({ user: userId })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const orders: UserOrderItem[] = userOrders.map((o) => {
+    const firstTitle = o.items?.[0]?.title ?? "বই";
+    const displayTitle =
+      o.items && o.items.length > 1
+        ? `${firstTitle} (এবং আরও ${o.items.length - 1}টি বই)`
+        : firstTitle;
+
+    return {
+      _id: String(o._id),
+      orderNumber: String(o._id).slice(-6).toUpperCase(),
+      bookTitle: displayTitle,
+      items: (o.items || []).map((it) => ({
+        title: it.title,
+        price: it.price,
+      })),
+      price: o.total,
+      currency: o.currency ?? "BDT",
+      paymentMethod: o.paymentMethod,
+      transactionId: o.transactionId ?? null,
+      status: o.status,
+      createdAt:
+        o.createdAt instanceof Date ? o.createdAt.toISOString() : String(o.createdAt),
+    };
+  });
+
   return {
     library,
     recentReads,
     purchaseHistory,
+    orders,
   };
 }

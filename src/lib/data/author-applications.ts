@@ -5,6 +5,7 @@ import AuthorApplication, {
   type AuthorApplicationStatus,
 } from "@/models/AuthorApplication";
 import User from "@/models/User";
+import { detectSocialPlatform } from "@/validators/author-application";
 
 export interface UserAuthorApplicationSocialLink {
   platform: string;
@@ -18,6 +19,7 @@ export interface UserAuthorApplication {
   phone: string;
   address: string;
   occupation: string;
+  socialUrl?: string | null;
   socialLinks: UserAuthorApplicationSocialLink[];
   bio: string;
   reason: string;
@@ -43,13 +45,18 @@ export async function getLatestAuthorApplicationForUser(
   const application = await AuthorApplication.findOne({ user: userId })
     .sort({ createdAt: -1 })
     .select(
-      "displayName email phone address occupation socialLinks bio reason status createdAt updatedAt"
+      "displayName email phone address occupation socialUrl socialLinks bio reason status createdAt updatedAt"
     )
     .lean();
 
   if (!application) return null;
 
-  const socialLinks = Array.isArray(application.socialLinks)
+  const rawSocialUrl =
+    typeof application.socialUrl === "string" && isSafeHttpUrl(application.socialUrl)
+      ? application.socialUrl
+      : null;
+
+  let socialLinks = Array.isArray(application.socialLinks)
     ? application.socialLinks
         .map((link: IAuthorApplicationSocialLink) => ({
           platform: link.platform ?? "",
@@ -58,6 +65,17 @@ export async function getLatestAuthorApplicationForUser(
         .filter((link) => link.url && isSafeHttpUrl(link.url))
     : [];
 
+  if (socialLinks.length === 0 && rawSocialUrl) {
+    socialLinks = [
+      {
+        platform: detectSocialPlatform(rawSocialUrl),
+        url: rawSocialUrl,
+      },
+    ];
+  }
+
+  const effectiveSocialUrl = rawSocialUrl || socialLinks[0]?.url || null;
+
   return {
     _id: String(application._id),
     displayName: application.displayName,
@@ -65,6 +83,7 @@ export async function getLatestAuthorApplicationForUser(
     phone: application.phone ?? "",
     address: application.address ?? "",
     occupation: application.occupation ?? "",
+    socialUrl: effectiveSocialUrl,
     socialLinks,
     bio: application.bio,
     reason: application.reason,
@@ -91,6 +110,7 @@ export interface AdminAuthorApplicationItem {
   phone: string;
   address: string;
   occupation: string;
+  socialUrl?: string | null;
   socialLinks: UserAuthorApplicationSocialLink[];
   bio: string;
   reason: string;
@@ -225,7 +245,12 @@ export async function getAdminAuthorApplications(
       email?: string;
     } | null;
 
-    const socialLinks = Array.isArray(app.socialLinks)
+    const rawSocialUrl =
+      typeof app.socialUrl === "string" && isSafeHttpUrl(app.socialUrl)
+        ? app.socialUrl
+        : null;
+
+    let socialLinks = Array.isArray(app.socialLinks)
       ? app.socialLinks
           .map((link: IAuthorApplicationSocialLink) => ({
             platform: link.platform ?? "",
@@ -233,6 +258,17 @@ export async function getAdminAuthorApplications(
           }))
           .filter((link) => link.url && isSafeHttpUrl(link.url))
       : [];
+
+    if (socialLinks.length === 0 && rawSocialUrl) {
+      socialLinks = [
+        {
+          platform: detectSocialPlatform(rawSocialUrl),
+          url: rawSocialUrl,
+        },
+      ];
+    }
+
+    const effectiveSocialUrl = rawSocialUrl || socialLinks[0]?.url || null;
 
     return {
       _id: String(app._id),
@@ -245,6 +281,7 @@ export async function getAdminAuthorApplications(
       phone: app.phone ?? "",
       address: app.address ?? "",
       occupation: app.occupation ?? "",
+      socialUrl: effectiveSocialUrl,
       socialLinks,
       bio: app.bio,
       reason: app.reason,

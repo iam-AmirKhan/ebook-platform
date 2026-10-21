@@ -1,6 +1,8 @@
 import dbConnect from "@/lib/db/mongoose";
 import Book from "@/models/Book";
+import Author from "@/models/Author";
 import Category from "@/models/Category";
+import type { PipelineStage } from "mongoose";
 import type { HomepageBook, HomepageCategory } from "@/types/homepage";
 
 export interface CatalogSearchParams {
@@ -31,6 +33,7 @@ function mapBook(raw: {
   discountPrice?: number | null;
   currency: string;
   createdAt: Date;
+  displayOrder?: number;
   author?: { penName?: string; slug?: string } | null;
   category?: { name?: string; slug?: string } | null;
 }): HomepageBook {
@@ -49,6 +52,7 @@ function mapBook(raw: {
     createdAt: raw.createdAt instanceof Date
       ? raw.createdAt.toISOString()
       : String(raw.createdAt),
+    displayOrder: typeof raw.displayOrder === "number" ? raw.displayOrder : 10000,
   };
 }
 
@@ -94,34 +98,103 @@ export async function getCatalogBooks(
       query.title = { $regex: params.q, $options: "i" };
     }
 
-    // Determine Sort Object
-    let sortObj: Record<string, 1 | -1> = { createdAt: -1 }; // default: latest
-    if (params.sort === "price-asc") {
-      sortObj = { price: 1, createdAt: -1 };
-    } else if (params.sort === "price-desc") {
-      sortObj = { price: -1, createdAt: -1 };
-    } else if (params.sort === "title-asc") {
-      sortObj = { title: 1, createdAt: -1 };
-    }
+    const isDefaultSort = !params.sort || params.sort === "featured";
 
-    // Execute Data Queries in Parallel
-    const [rawBooks, totalCount] = await Promise.all([
-      Book.find(query)
-        .sort(sortObj)
-        .skip(skip)
-        .limit(limit)
-        .populate<{ author: { penName: string; slug: string } | null }>(
-          "author",
-          "penName slug"
-        )
-        .populate<{ category: { name: string; slug: string } | null }>(
-          "category",
-          "name slug"
-        )
-        .select("title slug coverImage price discountPrice currency createdAt")
-        .lean(),
-      Book.countDocuments(query),
-    ]);
+    let rawBooks: Array<{
+      _id: unknown;
+      title: string;
+      slug: string;
+      coverImage?: string | null;
+      price: number;
+      discountPrice?: number | null;
+      currency: string;
+      createdAt: Date;
+      displayOrder?: number;
+      author?: { penName?: string; slug?: string } | null;
+      category?: { name?: string; slug?: string } | null;
+    }> = [];
+    let totalCount = 0;
+
+    if (isDefaultSort) {
+      // In MongoDB, null/missing fields sort BEFORE numbers in ascending order.
+      // We use aggregation with $ifNull to evaluate null/missing displayOrder as 10000,
+      // ensuring explicitly ranked books (1-8) appear first without any database writes.
+      const pipeline: PipelineStage[] = [
+        { $match: query },
+        {
+          $addFields: {
+            effectiveDisplayOrder: {
+              $ifNull: ["$displayOrder", 10000],
+            },
+          },
+        },
+        { $sort: { effectiveDisplayOrder: 1, createdAt: -1, _id: 1 } },
+        { $skip: skip },
+        { $limit: limit },
+        {
+          $project: {
+            title: 1,
+            slug: 1,
+            coverImage: 1,
+            price: 1,
+            discountPrice: 1,
+            currency: 1,
+            createdAt: 1,
+            displayOrder: 1,
+            author: 1,
+            category: 1,
+          },
+        },
+      ];
+
+      const [rawAggBooks, count] = await Promise.all([
+        Book.aggregate(pipeline),
+        Book.countDocuments(query),
+      ]);
+
+      void Author;
+      void Category;
+      rawBooks = (await Book.populate(rawAggBooks, [
+        { path: "author", select: "penName slug" },
+        { path: "category", select: "name slug" },
+      ])) as typeof rawBooks;
+      totalCount = count;
+    } else {
+      let sortObj: Record<string, 1 | -1>;
+      if (params.sort === "latest") {
+        sortObj = { createdAt: -1, _id: 1 };
+      } else if (params.sort === "price-asc") {
+        sortObj = { price: 1, createdAt: -1, _id: 1 };
+      } else if (params.sort === "price-desc") {
+        sortObj = { price: -1, createdAt: -1, _id: 1 };
+      } else if (params.sort === "title-asc") {
+        sortObj = { title: 1, createdAt: -1, _id: 1 };
+      } else {
+        sortObj = { createdAt: -1, _id: 1 };
+      }
+
+      // Execute Data Queries in Parallel
+      const [foundBooks, count] = await Promise.all([
+        Book.find(query)
+          .sort(sortObj)
+          .skip(skip)
+          .limit(limit)
+          .populate<{ author: { penName: string; slug: string } | null }>(
+            "author",
+            "penName slug"
+          )
+          .populate<{ category: { name: string; slug: string } | null }>(
+            "category",
+            "name slug"
+          )
+          .select("title slug coverImage price discountPrice currency createdAt displayOrder")
+          .lean(),
+        Book.countDocuments(query),
+      ]);
+
+      rawBooks = foundBooks as typeof rawBooks;
+      totalCount = count;
+    }
 
     const totalPages = Math.ceil(totalCount / limit);
 
@@ -150,7 +223,14 @@ export async function getAllActiveCategories(): Promise<HomepageCategory[]> {
   try {
     await dbConnect();
 
-    const raw = await Category.find({ status: "ACTIVE" })
+    const publishedCategoryIds = await Book.distinct("category", {
+      status: "PUBLISHED",
+    });
+
+    const raw = await Category.find({
+      _id: { $in: publishedCategoryIds },
+      status: "ACTIVE",
+    })
       .sort({ name: 1 })
       .select("name slug description image")
       .lean();

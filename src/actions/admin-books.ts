@@ -614,8 +614,8 @@ export async function adminSaveFeaturedBooks(
       revalidatePath("/");
       revalidatePath("/admin/books");
       revalidatePath("/books");
-    } catch (revalidateErr) {
-      console.warn("[adminSaveFeaturedBooks] Non-fatal revalidation error:", revalidateErr);
+    } catch {
+      // Revalidation may fail in non-request or test environments
     }
 
     return { success: true };
@@ -675,31 +675,46 @@ export async function adminReorderBooks(
       };
     }
 
-    // If reordering a subset of <= 8 books, reset any other books with displayOrder <= 8 to 10000
-    if (orderedBookIds.length <= 8) {
-      await Book.updateMany(
-        { displayOrder: { $lte: 8 }, _id: { $nin: orderedBookIds } },
-        { $set: { displayOrder: 10000 } }
-      );
+    // 6. Protect homepage featured books:
+    // Featured books (displayOrder 1..8) can ONLY be changed via adminSaveFeaturedBooks.
+    // Generic catalog reordering must not overwrite or reset featured books.
+    const featuredBooks = await Book.find({
+      status: "PUBLISHED",
+      displayOrder: { $gte: 1, $lte: 8 },
+    })
+      .select("_id")
+      .lean();
+
+    const featuredIdSet = new Set(featuredBooks.map((b) => String(b._id)));
+
+    // Generic displayOrder sequence starts after the featured range (9+)
+    let nextGenericOrder = 9;
+    const bulkOperations = [];
+
+    for (const bookId of orderedBookIds) {
+      // If a book is currently featured, preserve its featured rank
+      if (featuredIdSet.has(bookId)) {
+        continue;
+      }
+      bulkOperations.push({
+        updateOne: {
+          filter: { _id: bookId },
+          update: { $set: { displayOrder: nextGenericOrder++ } },
+        },
+      });
     }
 
-    // 6. Atomically update displayOrder in bulk
-    const bulkOperations = orderedBookIds.map((bookId, index) => ({
-      updateOne: {
-        filter: { _id: bookId },
-        update: { $set: { displayOrder: index + 1 } },
-      },
-    }));
-
-    await Book.bulkWrite(bulkOperations);
+    if (bulkOperations.length > 0) {
+      await Book.bulkWrite(bulkOperations);
+    }
 
     // 7. Revalidate affected paths
     try {
       revalidatePath("/");
       revalidatePath("/admin/books");
       revalidatePath("/books");
-    } catch (revalidateErr) {
-      console.warn("[adminReorderBooks] Non-fatal revalidation error:", revalidateErr);
+    } catch {
+      // Revalidation may fail in non-request or test environments
     }
 
     return { success: true };

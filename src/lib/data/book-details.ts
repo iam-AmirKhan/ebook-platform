@@ -53,7 +53,10 @@ async function resolveOwnership(
 // ---------------------------------------------------------------------------
 // Internal: strip chapter content for unauthorized users.
 // Preview chapters always expose content.
-// Locked chapters expose only order, title, isPreview, and teaser.
+// Locked chapters expose only order, title, isPreview, and teaser on initial
+// page load. Full locked chapter content is NEVER bundled into the initial page
+// props or RSC payload, preventing complete book leakage into client HTML/DOM.
+// Authorized purchasers fetch locked chapters on-demand via the protected API.
 // ---------------------------------------------------------------------------
 function applyChapterAccessControl(
   rawChapters: Array<{
@@ -63,7 +66,7 @@ function applyChapterAccessControl(
     teaser: string;
     content: string;
   }>,
-  isOwned: boolean
+  isFreeBook = false
 ): ChapterPreview[] {
   return rawChapters
     .slice() // avoid mutating the lean result
@@ -73,9 +76,9 @@ function applyChapterAccessControl(
       title: ch.title,
       isPreview: ch.isPreview,
       teaser: ch.teaser,
-      // Content is only included when the chapter is a preview OR the user
-      // has an ACTIVE purchase. In all other cases it is null.
-      content: ch.isPreview || isOwned ? ch.content : null,
+      // Content is only included when the chapter is a preview OR the book is 100% free.
+      // Locked chapters in paid books must be loaded on demand by authorized readers.
+      content: ch.isPreview || isFreeBook ? ch.content : null,
     }));
 }
 
@@ -94,7 +97,7 @@ export async function getBookBySlug(
 ): Promise<BookDetails | null> {
   await dbConnect();
 
-  const book = await Book.findOne({ slug, status: "PUBLISHED" })
+  const book = await Book.findOne({ slug })
     .populate<{
       author: { _id: unknown; penName: string; slug: string; bio: string | null };
     }>("author", "penName slug bio")
@@ -110,9 +113,16 @@ export async function getBookBySlug(
   const bookId = String(book._id);
 
   // Resolve ownership server-side. Fail-closed.
-  const isOwned = await resolveOwnership(userId, bookId);
+  const isFreeBook = book.price === 0;
+  const isPurchased = await resolveOwnership(userId, bookId);
+  const isOwned = isFreeBook || isPurchased;
 
-  // Strip chapter content according to ownership.
+  // If the book is not publicly published, ONLY an authenticated active purchaser can view it
+  if (book.status !== "PUBLISHED" && !isPurchased) {
+    return null;
+  }
+
+  // Strip chapter content according to access control rules.
   const rawChapters = (book.chapters ?? []) as Array<{
     order: number;
     title: string;
@@ -120,7 +130,7 @@ export async function getBookBySlug(
     teaser: string;
     content: string;
   }>;
-  const chapters = applyChapterAccessControl(rawChapters, isOwned);
+  const chapters = applyChapterAccessControl(rawChapters, book.status === "PUBLISHED" && isFreeBook);
 
   return {
     _id: bookId,
@@ -150,6 +160,176 @@ export async function getBookBySlug(
     summary: book.summary ?? null,
     learningOutcomes: book.learningOutcomes ?? [],
     chapters,
+    isOwned,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Public: getProtectedChapter
+//
+// Resolves on-demand chapter content with strict authorization and zero client trust.
+// ---------------------------------------------------------------------------
+export interface ProtectedChapterResult {
+  allowed: boolean;
+  statusCode: number;
+  error?: string;
+  chapter?: {
+    order: number;
+    title: string;
+    teaser: string;
+    content: string;
+    isPreview: boolean;
+  };
+  reader?: {
+    identifier: string;
+    pustokaId: string;
+  };
+}
+
+export async function getProtectedChapter(
+  slug: string,
+  chapterOrder: number,
+  userId: string | null | undefined,
+  userDisplayName?: string | null
+): Promise<ProtectedChapterResult> {
+  await dbConnect();
+
+  const book = await Book.findOne({ slug })
+    .select("_id title slug price currency chapters status")
+    .lean();
+
+  if (!book) {
+    return {
+      allowed: false,
+      statusCode: 404,
+      error: "বইটি পাওয়া যায়নি।",
+    };
+  }
+
+  const rawChapters = (book.chapters ?? []) as Array<{
+    order: number;
+    title: string;
+    isPreview: boolean;
+    teaser: string;
+    content: string;
+  }>;
+
+  const chapter = rawChapters.find((ch) => ch.order === chapterOrder);
+  if (!chapter) {
+    return {
+      allowed: false,
+      statusCode: 404,
+      error: "অধ্যায়টি পাওয়া যায়নি।",
+    };
+  }
+
+  // If the book is not publicly published (e.g. ARCHIVED, DRAFT, unpublished):
+  // Public storefront access (including preview chapters & free books) is closed.
+  // ONLY an authenticated user with an ACTIVE purchase is entitled to access.
+  if (book.status !== "PUBLISHED") {
+    if (!userId) {
+      return {
+        allowed: false,
+        statusCode: 401,
+        error: "এই অধ্যায়টি পড়তে লগইন করা প্রয়োজন।",
+      };
+    }
+
+    const hasAccess = await Purchase.exists({
+      user: userId,
+      book: book._id,
+      status: "ACTIVE",
+    });
+
+    if (!hasAccess) {
+      return {
+        allowed: false,
+        statusCode: 403,
+        error: "এই অধ্যায়টি পড়তে বইটি কেনা প্রয়োজন।",
+      };
+    }
+
+    return {
+      allowed: true,
+      statusCode: 200,
+      chapter: {
+        order: chapter.order,
+        title: chapter.title,
+        teaser: chapter.teaser,
+        content: chapter.content,
+        isPreview: chapter.isPreview,
+      },
+      reader: {
+        identifier: userDisplayName || "Verified Reader",
+        pustokaId: userId.slice(-6).toUpperCase(),
+      },
+    };
+  }
+
+  const isFreeBook = book.price === 0;
+
+  // Preview chapters or 100% free books can be read without purchase
+  if (chapter.isPreview || isFreeBook) {
+    return {
+      allowed: true,
+      statusCode: 200,
+      chapter: {
+        order: chapter.order,
+        title: chapter.title,
+        teaser: chapter.teaser,
+        content: chapter.content,
+        isPreview: chapter.isPreview,
+      },
+      reader: userId
+        ? {
+            identifier: userDisplayName || "Verified Reader",
+            pustokaId: userId.slice(-6).toUpperCase(),
+          }
+        : {
+            identifier: "Pustoka Reader",
+            pustokaId: "PREVIEW",
+          },
+    };
+  }
+
+  // Locked chapter in a paid book — requires authenticated user
+  if (!userId) {
+    return {
+      allowed: false,
+      statusCode: 401,
+      error: "এই অধ্যায়টি পড়তে লগইন করা প্রয়োজন।",
+    };
+  }
+
+  // Verify active purchase
+  const hasAccess = await Purchase.exists({
+    user: userId,
+    book: book._id,
+    status: "ACTIVE",
+  });
+
+  if (!hasAccess) {
+    return {
+      allowed: false,
+      statusCode: 403,
+      error: "এই অধ্যায়টি পড়তে বইটি কেনা প্রয়োজন।",
+    };
+  }
+
+  return {
+    allowed: true,
+    statusCode: 200,
+    chapter: {
+      order: chapter.order,
+      title: chapter.title,
+      teaser: chapter.teaser,
+      content: chapter.content,
+      isPreview: false,
+    },
+    reader: {
+      identifier: userDisplayName || "Verified Reader",
+      pustokaId: userId.slice(-6).toUpperCase(),
+    },
   };
 }
 

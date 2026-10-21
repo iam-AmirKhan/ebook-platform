@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { requireAdmin } from "@/lib/auth/authorization";
 import {
   getAdminAuthorApplications,
@@ -45,6 +47,13 @@ export default async function AdminAuthorApplicationsPage({
       <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Page Header */}
         <div className="mb-8">
+          <Link
+            href="/admin"
+            className="mb-3 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-brand font-[family-name:var(--font-bengali)] transition-colors"
+          >
+            <ArrowLeft className="size-3.5" />
+            অ্যাডমিন ড্যাশবোর্ডে ফিরুন
+          </Link>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-foreground font-[family-name:var(--font-bengali)]">

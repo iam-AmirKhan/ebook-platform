@@ -20,7 +20,7 @@ export default async function BooksPage({ searchParams }: BooksPageProps) {
   // Extract params
   const q = typeof resolvedParams.q === "string" ? resolvedParams.q : undefined;
   const category = typeof resolvedParams.category === "string" ? resolvedParams.category : undefined;
-  const sort = typeof resolvedParams.sort === "string" ? resolvedParams.sort : "latest";
+  const sort = typeof resolvedParams.sort === "string" ? resolvedParams.sort : "featured";
   
   // Parse page safely
   let page = 1;
@@ -65,10 +65,10 @@ export default async function BooksPage({ searchParams }: BooksPageProps) {
 
       {/* ── Main Layout ────────────────────────────────────────── */}
       <section className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-8 md:flex-row md:items-start">
+        <div className="flex flex-col gap-6 lg:gap-8 md:flex-row md:items-start">
           
           {/* Sidebar / Filters (Left) */}
-          <aside className="w-full shrink-0 md:sticky md:top-24 md:w-64 lg:w-72">
+          <aside className="w-full shrink-0 md:sticky md:top-24 md:w-60 lg:w-64">
             <CatalogFilters
               categories={categories}
               currentQuery={q}
@@ -92,6 +92,7 @@ export default async function BooksPage({ searchParams }: BooksPageProps) {
             {/* Grid */}
             <BookGrid
               books={books}
+              variant="catalog"
               emptyTitle={
                 q || category
                   ? "No matching books found"

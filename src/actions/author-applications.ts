@@ -7,7 +7,10 @@ import dbConnect from "@/lib/db/mongoose";
 import AuthorApplication from "@/models/AuthorApplication";
 import Author from "@/models/Author";
 import User from "@/models/User";
-import { AuthorApplicationSchema } from "@/validators/author-application";
+import {
+  AuthorApplicationSchema,
+  detectSocialPlatform,
+} from "@/validators/author-application";
 import { generateSlug } from "@/validators/book";
 
 export interface AuthorApplicationActionResult {
@@ -68,12 +71,21 @@ export async function submitAuthorApplication(
     };
   }
 
+  // Support single socialUrl field from the simplified form,
+  // and fallback to legacy multi-field if present
+  let rawSocialUrl = formValueToString(formData.get("socialUrl")).trim();
+  const legacyLinks = getSocialLinksFromFormData(formData);
+  if (!rawSocialUrl && legacyLinks.length > 0) {
+    rawSocialUrl = legacyLinks[0].url;
+  }
+
   const parsed = AuthorApplicationSchema.safeParse({
     displayName: formData.get("displayName"),
     phone: formData.get("phone"),
     address: formData.get("address"),
     occupation: formData.get("occupation"),
-    socialLinks: getSocialLinksFromFormData(formData),
+    socialUrl: rawSocialUrl || undefined,
+    socialLinks: legacyLinks.length > 0 ? legacyLinks : undefined,
     bio: formData.get("bio"),
     reason: formData.get("reason"),
   });
@@ -102,6 +114,13 @@ export async function submitAuthorApplication(
       return pendingApplicationResult();
     }
 
+    const finalSocialUrl = parsed.data.socialUrl ? parsed.data.socialUrl.trim() : null;
+    const finalLegacyLinks: Array<{ platform: string; url: string }> = finalSocialUrl
+      ? [{ platform: detectSocialPlatform(finalSocialUrl), url: finalSocialUrl }]
+      : legacyLinks.length > 0
+      ? legacyLinks
+      : [];
+
     await AuthorApplication.create({
       user: user.id,
       displayName: parsed.data.displayName,
@@ -109,7 +128,8 @@ export async function submitAuthorApplication(
       phone: parsed.data.phone,
       address: parsed.data.address,
       occupation: parsed.data.occupation,
-      socialLinks: parsed.data.socialLinks,
+      socialUrl: finalSocialUrl,
+      socialLinks: finalLegacyLinks,
       bio: parsed.data.bio,
       reason: parsed.data.reason,
       status: "PENDING",

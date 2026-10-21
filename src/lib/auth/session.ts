@@ -13,16 +13,28 @@ export interface AuthenticatedUser {
   status: UserStatus;
 }
 
+declare global {
+  // eslint-disable-next-line no-var
+  var __TEST_SESSION_USER__: AuthenticatedUser | null | undefined;
+}
+
 export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
+  if (process.env.NODE_ENV === "test" && globalThis.__TEST_SESSION_USER__ !== undefined) {
+    return globalThis.__TEST_SESSION_USER__;
+  }
   const session = await auth();
   if (!session?.user) {
     return null;
   }
 
   const sessionUser = session.user;
-  const rawId = sessionUser.id;
-  const rawEmail = sessionUser.email?.toLowerCase().trim();
+  const rawId = typeof sessionUser.id === "string" ? sessionUser.id.trim() : undefined;
+  const rawEmail =
+    typeof sessionUser.email === "string"
+      ? sessionUser.email.toLowerCase().trim()
+      : undefined;
 
+  // Reject missing / empty identity
   if (!rawId && !rawEmail) {
     return null;
   }
@@ -30,10 +42,24 @@ export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
   await dbConnect();
 
   let dbUser = null;
-  if (rawId && Types.ObjectId.isValid(rawId)) {
+
+  // Identity consistency check (SEC-05):
+  // When both session user ID and email are present, they must resolve to the exact same MongoDB user document.
+  // Ambiguous, conflicting, or non-matching identities are rejected immediately.
+  if (rawId && rawEmail) {
+    if (!Types.ObjectId.isValid(rawId)) {
+      return null;
+    }
+    dbUser = await User.findOne({
+      _id: new Types.ObjectId(rawId),
+      email: rawEmail,
+    }).lean();
+  } else if (rawId) {
+    if (!Types.ObjectId.isValid(rawId)) {
+      return null;
+    }
     dbUser = await User.findById(rawId).lean();
-  }
-  if (!dbUser && rawEmail) {
+  } else if (rawEmail) {
     dbUser = await User.findOne({ email: rawEmail }).lean();
   }
 

@@ -21,8 +21,22 @@ export interface PurchaseHistoryItem {
   purchasedAt: string;
 }
 
+export interface UserOrderItem {
+  _id: string;
+  orderNumber: string;
+  bookTitle: string;
+  items?: { title: string; price: number }[];
+  price: number;
+  currency: string;
+  paymentMethod: string;
+  transactionId: string | null;
+  status: "PENDING" | "PAID" | "FAILED" | "CANCELLED" | "REFUNDED";
+  createdAt: string;
+}
+
 export interface AccountDashboardData {
   library: LibraryBook[];
   recentReads: LibraryBook[]; // Derived from library books that have progress
   purchaseHistory: PurchaseHistoryItem[];
+  orders: UserOrderItem[];
 }

@@ -29,6 +29,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      allowDangerousEmailAccountLinking: false,
       authorization: {
         params: {
           prompt: "select_account",
@@ -96,13 +97,27 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
   },
   callbacks: {
-    async signIn({ user, account }) {
+    async signIn({ user, account, profile }) {
       if (account?.provider === "google") {
         if (!user.email) {
           return false;
         }
 
         const email = user.email.toLowerCase().trim();
+
+        // SEC-03: Safe OAuth account linking
+        // Check that OAuth email is verified by Google (OpenID Connect email_verified claim).
+        // Prevent an unverified email identity from being automatically linked to an existing account
+        // or inheriting its role.
+        const googleProfile = profile as Record<string, unknown> | undefined;
+        const isEmailVerified =
+          googleProfile?.email_verified === true ||
+          googleProfile?.email_verified === "true";
+
+        if (!isEmailVerified) {
+          return false;
+        }
+
         await dbConnect();
 
         const existingUser = await User.findOne({ email });
@@ -119,12 +134,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             await existingUser.save();
           }
 
-          // Attach MongoDB user properties to the user object for token ingestion
+          // Attach MongoDB user properties to the user object for token ingestion.
+          // Note: role and status are strictly taken from the trusted database record,
+          // never from external OAuth claims.
           user.id = existingUser._id.toString();
           user.role = existingUser.role;
           user.status = existingUser.status;
         } else {
-          // Create new user in MongoDB
+          // Create new user in MongoDB - role is strictly "USER", never granting ADMIN from OAuth claims.
           const newUser = await User.create({
             name: user.name?.trim() || "User",
             email: email,
@@ -159,15 +176,28 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (!token.role || !token.status || trigger === "update") {
         await dbConnect();
         let dbUser = null;
-        const candidateId = token.id as string | undefined;
-        if (candidateId && Types.ObjectId.isValid(candidateId)) {
+        const candidateId = typeof token.id === "string" ? token.id.trim() : undefined;
+        const candidateEmail =
+          typeof token.email === "string" ? token.email.toLowerCase().trim() : undefined;
+
+        // Identity consistency: when both ID and email are present, require that they match the same user
+        if (candidateId && candidateEmail) {
+          if (Types.ObjectId.isValid(candidateId)) {
+            dbUser = await User.findOne({
+              _id: new Types.ObjectId(candidateId),
+              email: candidateEmail,
+            })
+              .select("role status")
+              .lean();
+          }
+        } else if (candidateId && Types.ObjectId.isValid(candidateId)) {
           dbUser = await User.findById(candidateId).select("role status").lean();
-        }
-        if (!dbUser && token.email) {
-          dbUser = await User.findOne({ email: token.email.toLowerCase().trim() })
+        } else if (candidateEmail) {
+          dbUser = await User.findOne({ email: candidateEmail })
             .select("role status")
             .lean();
         }
+
         if (dbUser) {
           token.id = dbUser._id.toString();
           token.role = dbUser.role;

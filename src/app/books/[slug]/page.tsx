@@ -13,6 +13,7 @@ import { BookGrid } from "@/components/books/BookGrid";
 import { ReviewSection } from "@/components/books/ReviewSection";
 import { ShareBookButton } from "@/components/books/ShareBookButton";
 import { ChapterList } from "@/components/books/ChapterList";
+import { AddToCartButton } from "@/components/cart/AddToCartButton";
 import { Star } from "lucide-react";
 import dbConnect from "@/lib/db/mongoose";
 import Order from "@/models/Order";
@@ -62,9 +63,7 @@ export default async function BookPage({ params }: BookPageProps) {
     getRelatedBooks(book.category._id, book._id),
   ]);
 
-  const isOwned =
-    !!user &&
-    book.chapters.some((ch) => !ch.isPreview && ch.content !== null);
+  const isOwned = book.isOwned ?? false;
 
   let pendingOrder: { _id: unknown } | null = null;
   if (user?.id && !isOwned) {
@@ -236,12 +235,27 @@ export default async function BookPage({ params }: BookPageProps) {
                   </div>
                 ) : !user ? (
                   <div className="flex flex-col gap-2.5">
-                    <Link
-                      href={`/login?next=/books/${book.slug}`}
-                      className="inline-flex h-12 w-fit items-center justify-center rounded-lg bg-foreground px-8 text-[1rem] font-semibold text-background transition-all hover:bg-foreground/90 hover:shadow-lg"
-                    >
-                      কিনতে সাইন ইন করুন
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Link
+                        href={`/login?next=/books/${book.slug}`}
+                        className="inline-flex h-12 w-fit items-center justify-center rounded-lg bg-foreground px-8 text-[1rem] font-semibold text-background transition-all hover:bg-foreground/90 hover:shadow-lg font-[family-name:var(--font-bengali)]"
+                      >
+                        কিনতে সাইন ইন করুন
+                      </Link>
+                      <AddToCartButton
+                        book={{
+                          bookId: String(book._id),
+                          slug: book.slug,
+                          title: book.title,
+                          price: displayPrice,
+                          originalPrice: book.price,
+                          coverImage: book.coverImage ?? null,
+                          authorName: book.author.penName,
+                          currency: book.currency || "BDT",
+                        }}
+                        size="lg"
+                      />
+                    </div>
                     <p className="text-[0.8125rem] text-muted-foreground font-[family-name:var(--font-bengali)]">
                       বিনামূল্যে একাউন্ট তৈরি করুন এবং আপনার লাইব্রেরি ট্র্যাক করুন।
                     </p>
@@ -261,12 +275,27 @@ export default async function BookPage({ params }: BookPageProps) {
                   </div>
                 ) : (
                   <div className="flex flex-col gap-2.5">
-                    <Link
-                      href={`/checkout/${book.slug}`}
-                      className="inline-flex h-12 w-fit items-center justify-center rounded-lg bg-foreground px-8 text-[1rem] font-semibold text-background transition-all hover:bg-foreground/90 hover:shadow-lg font-[family-name:var(--font-bengali)]"
-                    >
-                      বইটি কিনুন — {book.currency} {displayPrice.toLocaleString()}
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Link
+                        href={`/checkout/${book.slug}`}
+                        className="inline-flex h-12 w-fit items-center justify-center rounded-lg bg-foreground px-8 text-[1rem] font-semibold text-background transition-all hover:bg-foreground/90 hover:shadow-lg font-[family-name:var(--font-bengali)]"
+                      >
+                        বইটি কিনুন — {book.currency} {displayPrice.toLocaleString()}
+                      </Link>
+                      <AddToCartButton
+                        book={{
+                          bookId: String(book._id),
+                          slug: book.slug,
+                          title: book.title,
+                          price: displayPrice,
+                          originalPrice: book.price,
+                          coverImage: book.coverImage ?? null,
+                          authorName: book.author.penName,
+                          currency: book.currency || "BDT",
+                        }}
+                        size="lg"
+                      />
+                    </div>
                     <p className="text-[0.8125rem] text-muted-foreground font-[family-name:var(--font-bengali)]">
                       সহজ ও নিরাপদ bKash / Nagad ম্যানুয়াল পেমেন্টের মাধ্যমে বইটি সংগ্রহ করুন।
                     </p>
@@ -339,7 +368,12 @@ export default async function BookPage({ params }: BookPageProps) {
               >
                 অধ্যায়সমূহ
               </h2>
-              <ChapterList chapters={book.chapters} isOwned={isOwned} />
+              <ChapterList
+                chapters={book.chapters}
+                isOwned={isOwned}
+                bookSlug={book.slug}
+                readerInfo={user ? { name: user.name, email: user.email, id: user.id } : null}
+              />
             </section>
           )}
 

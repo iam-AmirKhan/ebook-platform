@@ -20,15 +20,27 @@
  * - Lock message: 14px
  */
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import type { ChapterPreview } from "@/types/book-details";
+import { ProtectedReader } from "@/components/books/ProtectedReader";
 
 interface ChapterListProps {
   chapters: ChapterPreview[];
   isOwned: boolean;
+  bookSlug?: string;
+  readerInfo?: {
+    name?: string | null;
+    email?: string | null;
+    id?: string | null;
+  } | null;
 }
 
-export function ChapterList({ chapters, isOwned }: ChapterListProps) {
+export function ChapterList({
+  chapters,
+  isOwned,
+  bookSlug,
+  readerInfo,
+}: ChapterListProps) {
   if (chapters.length === 0) return null;
 
   const previewCount = chapters.filter((ch) => ch.isPreview).length;
@@ -53,6 +65,8 @@ export function ChapterList({ chapters, isOwned }: ChapterListProps) {
             key={chapter.order}
             chapter={chapter}
             isOwned={isOwned}
+            bookSlug={bookSlug}
+            readerInfo={readerInfo}
           />
         ))}
       </ol>
@@ -61,24 +75,69 @@ export function ChapterList({ chapters, isOwned }: ChapterListProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Individual chapter row — manages its own open/closed state
+// Individual chapter row — manages its own open/closed state & on-demand loading
 // ---------------------------------------------------------------------------
 
 interface ChapterItemProps {
   chapter: ChapterPreview;
   isOwned: boolean;
+  bookSlug?: string;
+  readerInfo?: {
+    name?: string | null;
+    email?: string | null;
+    id?: string | null;
+  } | null;
 }
 
-function ChapterItem({ chapter, isOwned }: ChapterItemProps) {
+function ChapterItem({ chapter, isOwned, bookSlug, readerInfo }: ChapterItemProps) {
   const isUnlocked = chapter.isPreview || isOwned;
   const [open, setOpen] = useState(false);
+  const [content, setContent] = useState<string | null>(chapter.content);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const fetchChapterContent = useCallback(async () => {
+    if (!bookSlug || content || isLoading) return;
+    setIsLoading(true);
+    setLoadError(null);
+
+    try {
+      const res = await fetch(`/api/books/${bookSlug}/chapters/${chapter.order}`, {
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "অধ্যায়টি লোড করতে সমস্যা হয়েছে।");
+      }
+
+      setContent(data.content || "");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "অধ্যায়টি লোড করতে সমস্যা হয়েছে।";
+      setLoadError(msg);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [bookSlug, chapter.order, content, isLoading]);
+
+  const handleToggle = () => {
+    const nextOpen = !open;
+    setOpen(nextOpen);
+    if (nextOpen && isUnlocked && !content && !chapter.isPreview) {
+      fetchChapterContent();
+    }
+  };
 
   return (
     <li className="flex flex-col">
       {/* ── Header row ────────────────────────────────────────── */}
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={handleToggle}
         aria-expanded={open}
         className="flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 sm:px-5"
       >
@@ -135,33 +194,40 @@ function ChapterItem({ chapter, isOwned }: ChapterItemProps) {
       {/* ── Expanded panel ────────────────────────────────────── */}
       {open && (
         <div className="border-t border-border/40">
-          {isUnlocked && chapter.content ? (
-            /* Preview or owned: render teaser separator + full body */
-            <div className="bg-muted/20 px-4 py-6 sm:px-6">
-              {chapter.teaser && (
-                <p
-                  className={[
-                    "mb-5 text-[0.9375rem] leading-[1.7] text-muted-foreground",
-                    "border-b border-border/40 pb-5",
-                    "font-[family-name:var(--font-bengali)]",
-                  ].join(" ")}
-                >
-                  {chapter.teaser}
-                </p>
-              )}
-              {/*
-                Chapter body — 18px, leading-[1.9], max-w-[65ch] for readability.
-                whitespace-pre-wrap preserves paragraph breaks from DB content.
-              */}
-              <div
-                className={[
-                  "whitespace-pre-wrap text-[1.125rem] leading-[1.9] text-foreground/90",
-                  "font-[family-name:var(--font-bengali)]",
-                  "max-w-[65ch]",
-                ].join(" ")}
-              >
-                {chapter.content}
-              </div>
+          {isUnlocked ? (
+            /* Unlocked chapter: preview or owned */
+            <div className="bg-muted/20 p-2 sm:p-4">
+              {content ? (
+                <ProtectedReader
+                  content={content}
+                  chapterTitle={chapter.title}
+                  chapterOrder={chapter.order}
+                  teaser={chapter.teaser}
+                  isPreview={chapter.isPreview}
+                  readerInfo={readerInfo}
+                />
+              ) : isLoading ? (
+                <div className="flex flex-col gap-3 rounded-lg border border-border/50 bg-card p-6 shadow-sm">
+                  <div className="flex items-center gap-2.5 text-xs font-semibold text-brand font-[family-name:var(--font-bengali)]">
+                    <span className="size-2 rounded-full bg-brand animate-ping" />
+                    <span>সুরক্ষিত সংযোগের মাধ্যমে অধ্যায়টি লোড হচ্ছে...</span>
+                  </div>
+                  <div className="h-4 w-3/4 rounded bg-muted/60 animate-pulse" />
+                  <div className="h-4 w-full rounded bg-muted/40 animate-pulse" />
+                  <div className="h-4 w-4/5 rounded bg-muted/40 animate-pulse" />
+                </div>
+              ) : loadError ? (
+                <div className="flex flex-col items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/5 p-5 text-xs text-destructive font-[family-name:var(--font-bengali)]">
+                  <p className="font-semibold">{loadError}</p>
+                  <button
+                    type="button"
+                    onClick={() => fetchChapterContent()}
+                    className="inline-flex items-center gap-1 rounded bg-destructive/10 px-3 py-1 font-medium hover:bg-destructive/20"
+                  >
+                    পুনরায় চেষ্টা করুন
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : (
             /* Locked: teaser + purchase callout — full content never passed in */
