@@ -69,7 +69,12 @@ export async function getCatalogBooks(
     const currentPage = params.page && params.page > 0 ? params.page : 1;
     const skip = (currentPage - 1) * limit;
 
-    const query: Record<string, unknown> = { status: "PUBLISHED" };
+    const inactiveAuthorIds = await Author.find({ status: "INACTIVE" }).distinct("_id");
+
+    const query: Record<string, unknown> = {
+      status: "PUBLISHED",
+      ...(inactiveAuthorIds.length > 0 ? { author: { $nin: inactiveAuthorIds } } : {}),
+    };
     let activeCategoryName: string | undefined = undefined;
 
     // Filter by Category
@@ -223,8 +228,11 @@ export async function getAllActiveCategories(): Promise<HomepageCategory[]> {
   try {
     await dbConnect();
 
+    const inactiveAuthorIds = await Author.find({ status: "INACTIVE" }).distinct("_id");
+
     const publishedCategoryIds = await Book.distinct("category", {
       status: "PUBLISHED",
+      ...(inactiveAuthorIds.length > 0 ? { author: { $nin: inactiveAuthorIds } } : {}),
     });
 
     const raw = await Category.find({

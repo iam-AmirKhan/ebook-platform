@@ -99,8 +99,8 @@ export async function getBookBySlug(
 
   const book = await Book.findOne({ slug })
     .populate<{
-      author: { _id: unknown; penName: string; slug: string; bio: string | null };
-    }>("author", "penName slug bio")
+      author: { _id: unknown; penName: string; slug: string; bio: string | null; status?: string };
+    }>("author", "penName slug bio status")
     .populate<{
       category: { _id: unknown; name: string; slug: string };
     }>("category", "name slug")
@@ -117,8 +117,9 @@ export async function getBookBySlug(
   const isPurchased = await resolveOwnership(userId, bookId);
   const isOwned = isFreeBook || isPurchased;
 
-  // If the book is not publicly published, ONLY an authenticated active purchaser can view it
-  if (book.status !== "PUBLISHED" && !isPurchased) {
+  // If the book is not publicly published or author is not active (INACTIVE / REJECTED), ONLY an authenticated active purchaser can view it
+  const isAuthorNotActive = book.author?.status && book.author.status !== "ACTIVE";
+  if ((book.status !== "PUBLISHED" || isAuthorNotActive) && !isPurchased) {
     return null;
   }
 
@@ -195,7 +196,8 @@ export async function getProtectedChapter(
   await dbConnect();
 
   const book = await Book.findOne({ slug })
-    .select("_id title slug price currency chapters status")
+    .select("_id title slug price currency chapters status author")
+    .populate<{ author: { status?: string } | null }>("author", "status")
     .lean();
 
   if (!book) {
@@ -223,10 +225,13 @@ export async function getProtectedChapter(
     };
   }
 
-  // If the book is not publicly published (e.g. ARCHIVED, DRAFT, unpublished):
+  // If the book is not publicly published (e.g. ARCHIVED, DRAFT, unpublished) OR author is not active (INACTIVE / REJECTED):
   // Public storefront access (including preview chapters & free books) is closed.
   // ONLY an authenticated user with an ACTIVE purchase is entitled to access.
-  if (book.status !== "PUBLISHED") {
+  const isAuthorNotActive =
+    (book.author as { status?: string } | null)?.status &&
+    (book.author as { status?: string } | null)?.status !== "ACTIVE";
+  if (book.status !== "PUBLISHED" || isAuthorNotActive) {
     if (!userId) {
       return {
         allowed: false,

@@ -1,6 +1,6 @@
 import mongoose, { Document, Model, Schema, Types } from "mongoose";
 
-export type AuthorStatus = "ACTIVE" | "INACTIVE";
+export type AuthorStatus = "ACTIVE" | "INACTIVE" | "REJECTED";
 
 export interface IAuthor {
   user: Types.ObjectId;
@@ -9,6 +9,11 @@ export interface IAuthor {
   bio?: string | null;
   profileImage?: string | null;
   status: AuthorStatus;
+  hiddenAt?: Date | null;
+  hiddenBy?: Types.ObjectId | null;
+  rejectedAt?: Date | null;
+  rejectedBy?: Types.ObjectId | null;
+  rejectionReason?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -46,9 +51,32 @@ const AuthorSchema = new Schema<IAuthorDocument>(
     },
     status: {
       type: String,
-      enum: ["ACTIVE", "INACTIVE"],
+      enum: ["ACTIVE", "INACTIVE", "REJECTED"],
       default: "ACTIVE",
       required: true,
+    },
+    hiddenAt: {
+      type: Date,
+      default: null,
+    },
+    hiddenBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    rejectedAt: {
+      type: Date,
+      default: null,
+    },
+    rejectedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    rejectionReason: {
+      type: String,
+      default: null,
+      trim: true,
     },
   },
   {

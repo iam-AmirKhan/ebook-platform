@@ -171,3 +171,79 @@ export const AuthorApplicationSchema = z.object({
 });
 
 export type AuthorApplicationInput = z.infer<typeof AuthorApplicationSchema>;
+
+export const AdminAuthorUpdateSchema = z.object({
+  displayName: requiredTrimmedString(
+    2,
+    "লেখক হিসেবে নাম কমপক্ষে ২ অক্ষরের হতে হবে।",
+    100,
+    "লেখক হিসেবে নাম সর্বোচ্চ ১০০ অক্ষরের হতে পারবে।"
+  ),
+  phone: z.preprocess(
+    (value) => {
+      if (value === undefined || value === null) return undefined;
+      return typeof value === "string" ? value.trim() : value;
+    },
+    z
+      .string()
+      .max(50, { message: "ফোন নম্বর সর্বোচ্চ ৫০ অক্ষরের হতে পারবে।" })
+      .optional()
+  ),
+  occupation: z.preprocess(
+    (value) => {
+      if (value === undefined || value === null) return undefined;
+      return typeof value === "string" ? value.trim() : value;
+    },
+    z
+      .string()
+      .max(120, { message: "পেশা সর্বোচ্চ ১২০ অক্ষরের হতে পারবে।" })
+      .optional()
+  ),
+  address: z.preprocess(
+    (value) => {
+      if (value === undefined || value === null) return undefined;
+      return typeof value === "string" ? value.trim() : value;
+    },
+    z
+      .string()
+      .max(500, { message: "ঠিকানা সর্বোচ্চ ৫০০ অক্ষরের হতে পারবে।" })
+      .optional()
+  ),
+  socialUrl: z
+    .preprocess(
+      (value) => {
+        if (value === undefined || value === null) return undefined;
+        if (typeof value === "string") {
+          const trimmed = value.trim();
+          if (!trimmed) return "";
+          return normalizeSocialUrl(trimmed);
+        }
+        return value;
+      },
+      z
+        .string()
+        .max(500, {
+          message: "সামাজিক মাধ্যমের URL সর্বোচ্চ ৫০০ অক্ষরের হতে পারবে।",
+        })
+        .optional()
+    )
+    .refine(
+      (val) => !val || isValidSocialUrl(val) || isSafeHttpUrl(val),
+      {
+        message:
+          "একটি বৈধ সোশ্যাল মিডিয়া লিংক দিন (যেমন: Facebook, Instagram, LinkedIn, X, YouTube, বা GitHub)।",
+      }
+    ),
+  bio: z.preprocess(
+    (value) => {
+      if (value === undefined || value === null) return undefined;
+      return typeof value === "string" ? value.trim() : value;
+    },
+    z
+      .string()
+      .max(1000, { message: "পরিচিতি সর্বোচ্চ ১০০০ অক্ষরের হতে পারবে।" })
+      .optional()
+  ),
+});
+
+export type AdminAuthorUpdateInput = z.infer<typeof AdminAuthorUpdateSchema>;

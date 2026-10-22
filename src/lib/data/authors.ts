@@ -204,6 +204,11 @@ export async function getAuthorPublishedBooks(
       return { books: [], totalCount: 0, totalPages: 0, currentPage: 1 };
     }
 
+    const authorDoc = await Author.findById(authorId).select("status").lean();
+    if (!authorDoc || authorDoc.status === "INACTIVE") {
+      return { books: [], totalCount: 0, totalPages: 0, currentPage: 1 };
+    }
+
     const limit = params.limit && params.limit > 0 ? params.limit : 12;
     const currentPage = params.page && params.page > 0 ? params.page : 1;
     const skip = (currentPage - 1) * limit;

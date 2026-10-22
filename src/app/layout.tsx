@@ -40,11 +40,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${hindSiliguri.variable} h-full antialiased`}
+      className={`${inter.variable} ${hindSiliguri.variable} antialiased overflow-x-hidden`}
       suppressHydrationWarning
     >
       <body
-        className="min-h-full flex flex-col bg-background text-foreground"
+        className="min-h-screen min-h-dvh flex flex-col bg-background text-foreground overflow-x-hidden"
         suppressHydrationWarning
       >
         <CartProvider>

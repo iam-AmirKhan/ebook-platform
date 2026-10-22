@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
@@ -11,6 +12,8 @@ import {
   getProfileNavHref,
 } from "@/lib/auth/navigation";
 import { CartNavButton } from "@/components/cart/CartNavButton";
+
+const emptySubscribe = () => () => {};
 
 interface MobileMenuProps {
   isAuthenticated: boolean;
@@ -78,11 +81,22 @@ export function MobileMenu({
   userRole,
 }: MobileMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const isMounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
   const pathname = usePathname();
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (prevPathname !== pathname) {
+    setPrevPathname(pathname);
+    setIsOpen(false);
+  }
+
   const writeHref = getWriteNavHref(isAuthenticated ? userRole : null);
   const profileHref = getProfileNavHref();
 
-  // Close on Escape key & lock body scroll while open
+  // Close on Escape key & lock body and html scroll while open on mobile & desktop
   useEffect(() => {
     if (!isOpen) return;
 
@@ -93,27 +107,33 @@ export function MobileMenu({
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    const originalOverflow = document.body.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyTouchAction = document.body.style.touchAction;
+
     document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = originalOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.touchAction = prevBodyTouchAction;
     };
   }, [isOpen]);
 
-  return (
-    <>
-      <MobileMenuButton isOpen={isOpen} onClick={() => setIsOpen((v) => !v)} />
-
+  const drawerPortal = isMounted ? (
+    <div className="md:hidden">
       {/* Backdrop overlay */}
-      {isOpen && (
-        <div
-          aria-hidden="true"
-          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity md:hidden"
-          onClick={() => setIsOpen(false)}
-        />
-      )}
+      <div
+        aria-hidden="true"
+        onClick={() => setIsOpen(false)}
+        onTouchMove={(e) => e.preventDefault()}
+        className={`fixed inset-0 z-50 bg-black/50 backdrop-blur-xs transition-opacity duration-300 ${
+          isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        }`}
+      />
 
       {/* Drawer */}
       <div
@@ -121,8 +141,10 @@ export function MobileMenu({
         role="dialog"
         aria-label="Navigation menu"
         aria-modal="true"
-        className={`fixed top-0 bottom-0 right-0 z-50 flex h-dvh max-h-screen w-80 max-w-[85vw] flex-col bg-background shadow-2xl transition-transform duration-300 ease-in-out md:hidden ${
-          isOpen ? "translate-x-0" : "translate-x-full"
+        className={`fixed inset-y-0 right-0 z-50 flex h-full max-h-screen max-h-dvh w-80 max-w-[85vw] flex-col bg-background shadow-2xl transition-[transform,visibility] duration-300 ease-in-out ${
+          isOpen
+            ? "translate-x-0 visible pointer-events-auto"
+            : "translate-x-full invisible pointer-events-none"
         }`}
       >
         {/* Fixed Header */}
@@ -161,7 +183,7 @@ export function MobileMenu({
         </div>
 
         {/* Scrollable Body: All navigation & auth items are inside this scroll container */}
-        <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-5 space-y-6 pb-[calc(2.5rem+env(safe-area-inset-bottom,0px))]">
+        <div className="flex-1 overflow-y-auto overscroll-contain touch-pan-y px-4 py-5 space-y-6 pb-[calc(2.5rem+env(safe-area-inset-bottom,0px))]">
           {/* Main Navigation links */}
           <nav aria-label="Mobile navigation">
             <ul className="space-y-1">
@@ -320,6 +342,13 @@ export function MobileMenu({
           </div>
         </div>
       </div>
+    </div>
+  ) : null;
+
+  return (
+    <>
+      <MobileMenuButton isOpen={isOpen} onClick={() => setIsOpen((v) => !v)} />
+      {drawerPortal && createPortal(drawerPortal, document.body)}
     </>
   );
 }

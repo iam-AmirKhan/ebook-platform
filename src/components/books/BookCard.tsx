@@ -49,27 +49,27 @@ export function BookCard({ book }: BookCardProps) {
       </Link>
 
       {/* Metadata & Actions */}
-      <div className="flex flex-1 flex-col justify-between p-4.5 sm:p-5 gap-3.5">
+      <div className="flex flex-1 flex-col justify-between p-3.5 sm:p-5 gap-2.5 sm:gap-3.5">
         <div>
           {book.categoryName && (
-            <span className="inline-block w-fit rounded-md bg-muted/80 px-2.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors group-hover:bg-brand/10 group-hover:text-brand font-[family-name:var(--font-bengali)] mb-2">
+            <span className="inline-block w-fit rounded-md bg-muted/80 px-2.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors group-hover:bg-brand/10 group-hover:text-brand font-[family-name:var(--font-bengali)] mb-1.5 sm:mb-2">
               {book.categoryName}
             </span>
           )}
 
           <Link href={`/books/${book.slug}`} className="block group/title">
-            <h3 className="line-clamp-2 text-base sm:text-lg font-bold leading-relaxed text-foreground group-hover/title:text-brand transition-colors font-[family-name:var(--font-bengali)] min-h-[3.25rem]">
+            <h3 className="line-clamp-2 text-base sm:text-lg font-bold leading-snug sm:leading-relaxed text-foreground group-hover/title:text-brand transition-colors font-[family-name:var(--font-bengali)] min-h-[2.75rem] sm:min-h-[3.25rem]">
               {book.title}
             </h3>
 
-            <p className="line-clamp-1 text-xs sm:text-sm text-muted-foreground mt-1.5 leading-normal font-[family-name:var(--font-bengali)]">
+            <p className="line-clamp-1 text-xs sm:text-sm text-muted-foreground mt-1 sm:mt-1.5 leading-normal font-[family-name:var(--font-bengali)]">
               {book.authorName}
             </p>
           </Link>
         </div>
 
         {/* Price & Action Buttons */}
-        <div className="mt-auto pt-3.5 border-t border-border/50 space-y-3">
+        <div className="mt-auto pt-2.5 sm:pt-3.5 border-t border-border/50 space-y-2.5 sm:space-y-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-baseline gap-2">
               <span className="text-lg sm:text-xl font-bold tracking-tight text-foreground font-[family-name:var(--font-bengali)]">
@@ -95,7 +95,7 @@ export function BookCard({ book }: BookCardProps) {
               id={`buy-book-${book.slug}`}
               data-testid={`buy-book-${book.slug}`}
               aria-label={`কিনুন: ${book.title}`}
-              className="inline-flex h-10 min-w-[76px] shrink-0 items-center justify-center rounded-xl bg-foreground px-4 text-xs sm:text-sm font-semibold text-background transition-colors hover:bg-foreground/85 whitespace-nowrap shadow-xs font-[family-name:var(--font-bengali)]"
+              className="inline-flex h-9 sm:h-10 min-w-[70px] sm:min-w-[76px] shrink-0 items-center justify-center rounded-xl bg-foreground px-3.5 sm:px-4 text-xs sm:text-sm font-semibold text-background transition-colors hover:bg-foreground/85 whitespace-nowrap shadow-xs font-[family-name:var(--font-bengali)]"
             >
               কিনুন
             </Link>
@@ -111,7 +111,7 @@ export function BookCard({ book }: BookCardProps) {
                 currency: book.currency || "BDT",
               }}
               size="sm"
-              className="flex-1 min-w-0"
+              className="flex-1 min-w-0 h-9 sm:h-10"
             />
           </div>
         </div>

@@ -67,10 +67,13 @@ export async function getFeaturedBooks(): Promise<HomepageBook[]> {
   try {
     await dbConnect();
 
+    const inactiveAuthorIds = await Author.find({ status: "INACTIVE" }).distinct("_id");
+
     // Only books explicitly ranked by the admin (displayOrder 1–FEATURED_LIMIT)
     const raw = await Book.find({
       status: "PUBLISHED",
       displayOrder: { $gte: 1, $lte: FEATURED_LIMIT },
+      ...(inactiveAuthorIds.length > 0 ? { author: { $nin: inactiveAuthorIds } } : {}),
     })
       .sort({ displayOrder: 1, createdAt: -1, _id: 1 })
       .limit(FEATURED_LIMIT)
@@ -99,7 +102,12 @@ export async function getLatestBooks(): Promise<HomepageBook[]> {
   try {
     await dbConnect();
 
-    const raw = await Book.find({ status: "PUBLISHED" })
+    const inactiveAuthorIds = await Author.find({ status: "INACTIVE" }).distinct("_id");
+
+    const raw = await Book.find({
+      status: "PUBLISHED",
+      ...(inactiveAuthorIds.length > 0 ? { author: { $nin: inactiveAuthorIds } } : {}),
+    })
       .sort({ createdAt: -1, _id: 1 })
       .limit(LATEST_LIMIT)
       .populate<{ author: { penName: string; slug: string } | null }>(
@@ -126,8 +134,11 @@ export async function getActiveCategories(): Promise<HomepageCategory[]> {
   try {
     await dbConnect();
 
+    const inactiveAuthorIds = await Author.find({ status: "INACTIVE" }).distinct("_id");
+
     const publishedCategoryIds = await Book.distinct("category", {
       status: "PUBLISHED",
+      ...(inactiveAuthorIds.length > 0 ? { author: { $nin: inactiveAuthorIds } } : {}),
     });
 
     const raw = await Category.find({
@@ -159,8 +170,13 @@ export async function getHomepageStats(): Promise<HomepageStats> {
   try {
     await dbConnect();
 
+    const inactiveAuthorIds = await Author.find({ status: "INACTIVE" }).distinct("_id");
+
     const [publishedBooks, activeAuthors] = await Promise.all([
-      Book.countDocuments({ status: "PUBLISHED" }),
+      Book.countDocuments({
+        status: "PUBLISHED",
+        ...(inactiveAuthorIds.length > 0 ? { author: { $nin: inactiveAuthorIds } } : {}),
+      }),
       Author.countDocuments({ status: "ACTIVE" }),
     ]);
 

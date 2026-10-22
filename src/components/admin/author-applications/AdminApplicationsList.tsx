@@ -32,9 +32,10 @@ interface AdminApplicationsListProps {
 }
 
 const TABS = [
-  { id: "ALL", label: "সব আবেদন", countKey: "all" as const },
+  { id: "ALL", label: "সব রেকর্ড", countKey: "all" as const },
   { id: "PENDING", label: "পর্যালোচনাধীন", countKey: "pending" as const },
-  { id: "APPROVED", label: "অনুমোদিত", countKey: "approved" as const },
+  { id: "APPROVED", label: "অনুমোদিত ও সক্রিয়", countKey: "approved" as const },
+  { id: "HIDDEN", label: "লুকানো লেখক", countKey: "hidden" as const },
   { id: "REJECTED", label: "প্রত্যাখ্যাত", countKey: "rejected" as const },
 ];
 
@@ -63,6 +64,9 @@ export function AdminApplicationsList({
 
   const handleActionFeedback = (res: AdminReviewActionResult | null) => {
     setActionFeedback(res);
+    if (res?.success) {
+      router.refresh();
+    }
     if (res && typeof window !== "undefined") {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
@@ -225,7 +229,9 @@ export function AdminApplicationsList({
               : activeFilter === "PENDING"
               ? "কোনো পর্যালোচনাধীন আবেদন নেই"
               : activeFilter === "APPROVED"
-              ? "কোনো অনুমোদিত আবেদন নেই"
+              ? "কোনো অনুমোদিত লেখক নেই"
+              : activeFilter === "HIDDEN"
+              ? "কোনো লুকানো লেখক নেই"
               : activeFilter === "REJECTED"
               ? "কোনো প্রত্যাখ্যাত আবেদন নেই"
               : "এখনো কোনো লেখক আবেদন জমা পড়েনি"}
