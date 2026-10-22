@@ -47,8 +47,8 @@ export function BookGrid({
 
   const gridClasses =
     variant === "home"
-      ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 sm:gap-7 lg:gap-8"
-      : "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-1 min-[880px]:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6 sm:gap-6 lg:gap-7";
+      ? "grid grid-cols-1 min-[500px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-5"
+      : "grid grid-cols-1 min-[500px]:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5";
 
   return (
     <div className={gridClasses}>

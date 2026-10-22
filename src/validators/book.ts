@@ -145,9 +145,14 @@ const BasBookSchema = z.object({
   coverImage: z
     .string()
     .trim()
-    .url("বৈধ URL দিন")
-    .startsWith("https://", "URL অবশ্যই https:// দিয়ে শুরু হতে হবে")
     .max(1000)
+    .refine(
+      (val) => {
+        if (!val || val === "") return true;
+        return val.startsWith("/uploads/") || /^https?:\/\/.+/.test(val);
+      },
+      { message: "কভার ছবির জন্য বৈধ লিঙ্ক বা আপলোড ফাইল দিন" }
+    )
     .nullable()
     .optional()
     .or(z.literal("")),

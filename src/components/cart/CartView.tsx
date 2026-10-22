@@ -220,7 +220,7 @@ export function CartView({ user }: CartViewProps) {
                     {/* Cover Thumbnail */}
                     <Link
                       href={`/books/${item.slug}`}
-                      className="relative aspect-[3/4] w-16 sm:w-20 shrink-0 overflow-hidden rounded-lg border border-border/50 bg-muted block"
+                      className="relative aspect-[2/3] w-16 sm:w-20 shrink-0 overflow-hidden rounded-lg border border-border/50 bg-muted block"
                     >
                       {item.coverImage ? (
                         // eslint-disable-next-line @next/next/no-img-element

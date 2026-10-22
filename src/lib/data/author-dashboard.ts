@@ -21,6 +21,8 @@ import type {
   BookFormData,
   CategoryOption,
 } from "@/types/author";
+import User from "@/models/User";
+import VerificationToken from "@/models/VerificationToken";
 import { Types } from "mongoose";
 
 // ---------------------------------------------------------------------------
@@ -163,15 +165,31 @@ export async function getAuthorFullProfile(
 
   if (!author) return null;
 
+  const [dbUser, pendingToken] = await Promise.all([
+    User.findById(userId).select("passwordHash").lean(),
+    VerificationToken.findOne({
+      userId: new Types.ObjectId(userId),
+      type: "EMAIL_VERIFICATION",
+      usedAt: null,
+      expiresAt: { $gt: new Date() },
+    })
+      .sort({ createdAt: -1 })
+      .lean(),
+  ]);
+
   return {
     _id: String(author._id),
-    userId: String(author.user ? (author.user as unknown as { _id?: unknown })._id ?? userId : userId),
+    userId: String(
+      author.user ? (author.user as unknown as { _id?: unknown })._id ?? userId : userId
+    ),
     penName: author.penName,
     slug: author.slug,
     bio: author.bio ?? null,
     profileImage: author.profileImage ?? null,
     name: author.user?.name ?? "",
     email: author.user?.email ?? "",
+    pendingEmail: pendingToken ? pendingToken.email : null,
+    isOAuthUser: dbUser ? !dbUser.passwordHash : false,
   };
 }
 

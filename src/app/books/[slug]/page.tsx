@@ -14,6 +14,7 @@ import { ReviewSection } from "@/components/books/ReviewSection";
 import { ShareBookButton } from "@/components/books/ShareBookButton";
 import { ChapterList } from "@/components/books/ChapterList";
 import { AddToCartButton } from "@/components/cart/AddToCartButton";
+import { BookCoverImage } from "@/components/books/BookCoverImage";
 import { Star } from "lucide-react";
 import dbConnect from "@/lib/db/mongoose";
 import Order from "@/models/Order";
@@ -81,9 +82,6 @@ export default async function BookPage({ params }: BookPageProps) {
     book.discountPrice !== null && book.discountPrice < book.price;
   const displayPrice = hasDiscount ? book.discountPrice! : book.price;
 
-  const hue =
-    book.title.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0) % 360;
-
   return (
     <div className="flex flex-1 flex-col">
       {/* ── Book Hero ────────────────────────────────────────────── */}
@@ -93,46 +91,15 @@ export default async function BookPage({ params }: BookPageProps) {
 
             {/* Cover Column */}
             <div className="w-full shrink-0 md:w-[240px] lg:w-[280px]">
-              <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl border border-border/50 bg-muted shadow-xl shadow-brand/5">
-                {book.coverImage ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={book.coverImage}
-                    alt={`Cover of ${book.title}`}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div
-                    aria-hidden="true"
-                    className="flex h-full w-full flex-col items-center justify-center gap-4 p-6 text-center"
-                    style={{ background: `oklch(0.92 0.04 ${hue})` }}
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="48"
-                      height="48"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      style={{ color: `oklch(0.45 0.08 ${hue})` }}
-                    >
-                      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
-                    </svg>
-                    {/* Title in placeholder cover uses Bengali font */}
-                    <span
-                      className="font-semibold leading-snug font-[family-name:var(--font-bengali)] text-[0.9rem]"
-                      style={{ color: `oklch(0.35 0.08 ${hue})` }}
-                    >
-                      {book.title}
-                    </span>
-                  </div>
-                )}
+              <div className="relative w-full overflow-hidden rounded-xl border border-border/50 bg-muted shadow-xl shadow-brand/5">
+                <BookCoverImage
+                  src={book.coverImage}
+                  title={book.title}
+                  aspectRatio="aspect-[2/3]"
+                />
 
                 {hasDiscount && (
-                  <span className="absolute right-3 top-3 rounded-md bg-brand px-2 py-1 text-xs font-bold uppercase tracking-wide text-background shadow-sm">
+                  <span className="absolute right-3 top-3 z-20 rounded-md bg-brand px-2 py-1 text-xs font-bold uppercase tracking-wide text-background shadow-sm">
                     Sale
                   </span>
                 )}

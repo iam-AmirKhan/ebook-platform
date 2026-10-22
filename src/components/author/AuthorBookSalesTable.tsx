@@ -48,7 +48,7 @@ export function AuthorBookSalesTable({ sales }: AuthorBookSalesTableProps) {
               <tr key={item.bookId} className="hover:bg-muted/10 transition-colors">
                 <td className="px-5 py-3.5">
                   <div className="flex items-center gap-3">
-                    <div className="relative aspect-[3/4] w-9 shrink-0 overflow-hidden rounded border border-border/40 bg-muted">
+                    <div className="relative aspect-[2/3] w-9 shrink-0 overflow-hidden rounded border border-border/40 bg-muted">
                       {item.coverImage ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img

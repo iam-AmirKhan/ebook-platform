@@ -99,6 +99,8 @@ export interface AuthorProfileData {
   profileImage: string | null;
   email: string;
   name: string;
+  pendingEmail?: string | null;
+  isOAuthUser?: boolean;
 }
 
 export interface PublicAuthorCard {

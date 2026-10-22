@@ -863,349 +863,217 @@ export function AdminBooksList({
             </div>
           ) : (
             <>
-              {/* Desktop Table View */}
-              <div className="hidden sm:block overflow-hidden rounded-xl border border-border/60 bg-card shadow-xs">
-                <table className="w-full text-left text-xs">
-                  <thead className="border-b border-border/60 bg-muted/20 text-muted-foreground font-[family-name:var(--font-bengali)]">
-                    <tr>
-                      <th className="px-4 py-3 font-semibold">বই</th>
-                      <th className="px-4 py-3 font-semibold">লেখক</th>
-                      <th className="px-4 py-3 font-semibold">ক্যাটাগরি</th>
-                      <th className="px-4 py-3 font-semibold">মূল্য</th>
-                      <th className="px-4 py-3 font-semibold">স্ট্যাটাস ও ক্রম</th>
-                      <th className="px-4 py-3 font-semibold">তৈরির তারিখ</th>
-                      <th className="px-4 py-3 font-semibold text-right">পদক্ষেপ</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/40 text-foreground">
-                    {books.map((book) => (
-                      <tr
-                        key={book._id}
-                        className="transition-colors hover:bg-muted/10"
-                      >
-                        {/* Book Cover + Title */}
-                        <td className="px-4 py-3.5">
-                          <div className="flex items-center gap-3">
-                            <div className="h-14 w-10 shrink-0 overflow-hidden rounded border border-border/50 bg-muted">
-                              {book.coverImage ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={book.coverImage}
-                                  alt=""
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground/40">
-                                  <BookOpen className="size-4" />
-                                </div>
-                              )}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5 font-medium text-foreground font-[family-name:var(--font-bengali)]">
-                                <span className="truncate">{book.title}</span>
-                                {book.status === "PUBLISHED" && (
-                                  <Link
-                                    href={`/books/${book.slug}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-muted-foreground hover:text-brand"
-                                    title="পাবলিক পেজে দেখুন"
-                                  >
-                                    <ExternalLink className="size-3" />
-                                  </Link>
+              {/* Books Table View */}
+              <div className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[960px] text-left text-xs font-[family-name:var(--font-bengali)]">
+                    <thead className="border-b border-border/60 bg-muted/20 text-muted-foreground">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold whitespace-nowrap">বই</th>
+                        <th className="px-4 py-3 font-semibold whitespace-nowrap">লেখক</th>
+                        <th className="px-4 py-3 font-semibold whitespace-nowrap">ক্যাটাগরি</th>
+                        <th className="px-4 py-3 font-semibold whitespace-nowrap">মূল্য</th>
+                        <th className="px-4 py-3 font-semibold whitespace-nowrap">স্ট্যাটাস ও ক্রম</th>
+                        <th className="px-4 py-3 font-semibold whitespace-nowrap">তৈরির তারিখ</th>
+                        <th className="px-4 py-3 font-semibold text-right whitespace-nowrap">পদক্ষেপ</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/40 text-foreground">
+                      {books.map((book) => (
+                        <tr
+                          key={book._id}
+                          className="transition-colors hover:bg-muted/10"
+                        >
+                          {/* Book Cover + Title */}
+                          <td className="px-4 py-3.5">
+                            <div className="flex items-center gap-3">
+                              <div className="h-14 w-10 shrink-0 overflow-hidden rounded border border-border/50 bg-muted">
+                                {book.coverImage ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={book.coverImage}
+                                    alt=""
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground/40">
+                                    <BookOpen className="size-4" />
+                                  </div>
                                 )}
                               </div>
-                              <span className="block text-[11px] text-muted-foreground">
-                                <code>{book.slug}</code>
-                              </span>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 font-medium text-foreground">
+                                  <span className="truncate">{book.title}</span>
+                                  {book.status === "PUBLISHED" && (
+                                    <Link
+                                      href={`/books/${book.slug}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-muted-foreground hover:text-brand"
+                                      title="পাবলিক পেজে দেখুন"
+                                    >
+                                      <ExternalLink className="size-3" />
+                                    </Link>
+                                  )}
+                                </div>
+                                <span className="block text-[11px] text-muted-foreground font-mono">
+                                  <code>{book.slug}</code>
+                                </span>
+                              </div>
                             </div>
-                          </div>
-                        </td>
+                          </td>
 
-                        {/* Author */}
-                        <td className="px-4 py-3.5 font-[family-name:var(--font-bengali)]">
-                          <span className="font-medium">{book.authorName}</span>
-                        </td>
+                          {/* Author */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <span className="font-medium">{book.authorName}</span>
+                          </td>
 
-                        {/* Category */}
-                        <td className="px-4 py-3.5 font-[family-name:var(--font-bengali)]">
-                          <span className="inline-flex rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                            {book.categoryName}
-                          </span>
-                        </td>
+                          {/* Category */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <span className="inline-flex rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                              {book.categoryName}
+                            </span>
+                          </td>
 
-                        {/* Price */}
-                        <td className="px-4 py-3.5">
-                          {book.discountPrice ? (
-                            <div className="flex flex-col text-[11px]">
-                              <span className="font-semibold text-brand">
-                                ৳ {book.discountPrice}
-                              </span>
-                              <span className="line-through text-muted-foreground">
-                                ৳ {book.price}
-                              </span>
+                          {/* Price */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            {book.discountPrice ? (
+                              <div className="flex flex-col text-[11px]">
+                                <span className="font-semibold text-brand">
+                                  ৳ {book.discountPrice}
+                                </span>
+                                <span className="line-through text-muted-foreground">
+                                  ৳ {book.price}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="font-semibold">৳ {book.price}</span>
+                            )}
+                          </td>
+
+                          {/* Status & Display Order */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5 flex-nowrap">
+                              <BookStatusBadge status={book.status} />
+                              {book.status === "PUBLISHED" && (
+                                book.displayOrder <= 8 ? (
+                                  <span
+                                    className="inline-flex items-center gap-1 rounded-md bg-amber-400/15 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400 ring-1 ring-amber-400/40"
+                                    title="হোমপেজে ফিচার্ড"
+                                  >
+                                    <Star className="size-3 fill-amber-400 text-amber-500" />
+                                    ফিচার্ড #{book.displayOrder}
+                                  </span>
+                                ) : book.displayOrder <= 9000 ? (
+                                  <span
+                                    className="rounded-md bg-brand/10 px-1.5 py-0.5 text-[10px] font-bold text-brand"
+                                    title="পাবলিক ক্যাটালগ ক্রম"
+                                  >
+                                    #{book.displayOrder}
+                                  </span>
+                                ) : null
+                              )}
                             </div>
-                          ) : (
-                            <span className="font-semibold">৳ {book.price}</span>
-                          )}
-                        </td>
+                          </td>
 
-                        {/* Status & Display Order */}
-                        <td className="px-4 py-3.5">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <BookStatusBadge status={book.status} />
-                            {book.status === "PUBLISHED" && (
-                              book.displayOrder <= 8 ? (
-                                <span
-                                  className="inline-flex items-center gap-1 rounded-md bg-amber-400/15 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400 ring-1 ring-amber-400/40"
-                                  title="হোমপেজে ফিচার্ড"
-                                >
-                                  <Star className="size-3 fill-amber-400 text-amber-500" />
-                                  ফিচার্ড #{book.displayOrder}
-                                </span>
-                              ) : book.displayOrder <= 9000 ? (
-                                <span
-                                  className="rounded-md bg-brand/10 px-1.5 py-0.5 text-[10px] font-bold text-brand"
-                                  title="পাবলিক ক্যাটালগ ক্রম"
-                                >
-                                  #{book.displayOrder}
-                                </span>
-                              ) : null
-                            )}
-                          </div>
-                        </td>
+                          {/* Created Date */}
+                          <td className="px-4 py-3.5 text-muted-foreground whitespace-nowrap">
+                            {formatDate(book.createdAt)}
+                          </td>
 
-                        {/* Created Date */}
-                        <td className="px-4 py-3.5 text-muted-foreground font-[family-name:var(--font-bengali)]">
-                          {formatDate(book.createdAt)}
-                        </td>
-
-                        {/* Actions */}
-                        <td className="px-4 py-3.5 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <Link
-                              href={`/admin/books/${book._id}/edit`}
-                              id={`edit-book-${book._id}`}
-                              className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted hover:text-brand font-[family-name:var(--font-bengali)]"
-                            >
-                              <Edit3 className="size-3" />
-                              সম্পাদনা
-                            </Link>
-
-                            {book.status === "DRAFT" && (
-                              <>
-                                <button
-                                  type="button"
-                                  id={`publish-btn-${book._id}`}
-                                  onClick={() => setPendingAction({ type: "PUBLISH", book })}
-                                  disabled={isPending}
-                                  className="inline-flex items-center gap-1 rounded-md border border-brand/30 bg-brand/10 px-2 py-1 text-xs font-semibold text-brand transition-colors hover:bg-brand/20 disabled:opacity-50 font-[family-name:var(--font-bengali)]"
-                                  title="বইটি প্রকাশ করুন"
-                                >
-                                  <Upload className="size-3" />
-                                  প্রকাশ
-                                </button>
-                                <button
-                                  type="button"
-                                  id={`archive-btn-${book._id}`}
-                                  onClick={() => setPendingAction({ type: "ARCHIVE", book })}
-                                  disabled={isPending}
-                                  className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-xs font-medium text-destructive/80 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 font-[family-name:var(--font-bengali)]"
-                                  title="সংরক্ষণাগারে পাঠান"
-                                >
-                                  <Archive className="size-3" />
-                                  সংরক্ষণ
-                                </button>
-                              </>
-                            )}
-
-                            {book.status === "PUBLISHED" && (
-                              <>
-                                <button
-                                  type="button"
-                                  id={`quick-feature-btn-${book._id}`}
-                                  onClick={() => handleQuickToggleFeatured(book)}
-                                  disabled={isSavingOrder || (book.displayOrder > 8 && featuredBooks.length >= 8)}
-                                  className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold transition-colors disabled:opacity-40 font-[family-name:var(--font-bengali)] ${
-                                    book.displayOrder <= 8
-                                      ? "border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20"
-                                      : "border border-border/60 bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
-                                  }`}
-                                  title={
-                                    book.displayOrder <= 8
-                                      ? "হোমপেজ ফিচার্ড থেকে সরান"
-                                      : featuredBooks.length >= 8
-                                      ? "সর্বোচ্চ ৮টি বই ইতিমধ্যে ফিচার্ড করা আছে"
-                                      : "হোমপেজে ফিচার্ড হিসেবে যোগ করুন"
-                                  }
-                                >
-                                  <Star className={`size-3 ${book.displayOrder <= 8 ? "fill-amber-400 text-amber-500" : ""}`} />
-                                  {book.displayOrder <= 8 ? "ফিচার্ড" : "+ ফিচার্ড"}
-                                </button>
-                                <button
-                                  type="button"
-                                  id={`unpublish-btn-${book._id}`}
-                                  onClick={() => setPendingAction({ type: "UNPUBLISH", book })}
-                                  disabled={isPending}
-                                  className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50 font-[family-name:var(--font-bengali)]"
-                                  title="বইটি প্রত্যাহার করে ড্রাফট করুন"
-                                >
-                                  <EyeOff className="size-3" />
-                                  প্রত্যাহার
-                                </button>
-                                <button
-                                  type="button"
-                                  id={`archive-btn-${book._id}`}
-                                  onClick={() => setPendingAction({ type: "ARCHIVE", book })}
-                                  disabled={isPending}
-                                  className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-xs font-medium text-destructive/80 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 font-[family-name:var(--font-bengali)]"
-                                  title="সংরক্ষণাগারে পাঠান"
-                                >
-                                  <Archive className="size-3" />
-                                  সংরক্ষণ
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Mobile Card View */}
-              <div className="space-y-3 sm:hidden">
-                {books.map((book) => (
-                  <div
-                    key={book._id}
-                    className="flex gap-3 rounded-xl border border-border/60 bg-card p-4 shadow-2xs"
-                  >
-                    <div className="h-20 w-14 shrink-0 overflow-hidden rounded border border-border/50 bg-muted">
-                      {book.coverImage ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={book.coverImage}
-                          alt=""
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground/40">
-                          <BookOpen className="size-4" />
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex flex-1 flex-col justify-between min-w-0">
-                      <div>
-                        <div className="flex items-start justify-between gap-2">
-                          <h4 className="font-medium text-foreground text-xs leading-snug line-clamp-2 font-[family-name:var(--font-bengali)]">
-                            {book.title}
-                          </h4>
-                          <div className="flex items-center gap-1 shrink-0 flex-wrap">
-                            <BookStatusBadge status={book.status} />
-                            {book.status === "PUBLISHED" && (
-                              book.displayOrder <= 8 ? (
-                                <span className="inline-flex items-center gap-1 rounded-md bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-400 ring-1 ring-amber-400/40">
-                                  <Star className="size-2.5 fill-amber-400 text-amber-500" />
-                                  #{book.displayOrder}
-                                </span>
-                              ) : book.displayOrder <= 9000 ? (
-                                <span className="rounded-md bg-brand/10 px-1.5 py-0.5 text-[9px] font-bold text-brand">
-                                  #{book.displayOrder}
-                                </span>
-                              ) : null
-                            )}
-                          </div>
-                        </div>
-                        <p className="mt-1 text-[11px] text-muted-foreground font-[family-name:var(--font-bengali)]">
-                          লেখক: {book.authorName}
-                        </p>
-                      </div>
-
-                      <div className="mt-2.5 flex flex-wrap items-center justify-between border-t border-border/40 pt-2 gap-2 text-[11px]">
-                        <span className="text-muted-foreground font-[family-name:var(--font-bengali)]">
-                          {book.categoryName} &bull; <strong className="text-brand font-semibold">৳ {book.discountPrice ?? book.price}</strong>
-                        </span>
-
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <Link
-                            href={`/admin/books/${book._id}/edit`}
-                            id={`mobile-edit-book-${book._id}`}
-                            className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-foreground hover:bg-muted font-[family-name:var(--font-bengali)]"
-                          >
-                            <Edit3 className="size-3" />
-                            সম্পাদনা
-                          </Link>
-
-                          {book.status === "DRAFT" && (
-                            <>
-                              <button
-                                type="button"
-                                id={`mobile-publish-btn-${book._id}`}
-                                onClick={() => setPendingAction({ type: "PUBLISH", book })}
-                                disabled={isPending}
-                                className="inline-flex items-center gap-1 rounded-md border border-brand/30 bg-brand/10 px-2 py-0.5 text-xs font-semibold text-brand hover:bg-brand/20 disabled:opacity-50 font-[family-name:var(--font-bengali)]"
+                          {/* Actions */}
+                          <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <Link
+                                href={`/admin/books/${book._id}/edit`}
+                                id={`edit-book-${book._id}`}
+                                className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted hover:text-brand"
                               >
-                                <Upload className="size-3" />
-                                প্রকাশ
-                              </button>
-                              <button
-                                type="button"
-                                id={`mobile-archive-btn-${book._id}`}
-                                onClick={() => setPendingAction({ type: "ARCHIVE", book })}
-                                disabled={isPending}
-                                className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-1.5 py-0.5 text-xs font-medium text-destructive/80 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 font-[family-name:var(--font-bengali)]"
-                                title="সংরক্ষণাগারে পাঠান"
-                              >
-                                <Archive className="size-3" />
-                              </button>
-                            </>
-                          )}
+                                <Edit3 className="size-3" />
+                                সম্পাদনা
+                              </Link>
 
-                          {book.status === "PUBLISHED" && (
-                            <>
-                              <button
-                                type="button"
-                                id={`mobile-quick-feature-btn-${book._id}`}
-                                onClick={() => handleQuickToggleFeatured(book)}
-                                disabled={isSavingOrder || (book.displayOrder > 8 && featuredBooks.length >= 8)}
-                                className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold transition-colors disabled:opacity-40 font-[family-name:var(--font-bengali)] ${
-                                  book.displayOrder <= 8
-                                    ? "border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                                    : "border border-border/60 bg-background text-muted-foreground hover:bg-muted"
-                                }`}
-                              >
-                                <Star className={`size-3 ${book.displayOrder <= 8 ? "fill-amber-400 text-amber-500" : ""}`} />
-                                {book.displayOrder <= 8 ? "ফিচার্ড" : "+ ফিচার্ড"}
-                              </button>
-                              <button
-                                type="button"
-                                id={`mobile-unpublish-btn-${book._id}`}
-                                onClick={() => setPendingAction({ type: "UNPUBLISH", book })}
-                                disabled={isPending}
-                                className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50 font-[family-name:var(--font-bengali)]"
-                              >
-                                <EyeOff className="size-3" />
-                                প্রত্যাহার
-                              </button>
-                              <button
-                                type="button"
-                                id={`mobile-archive-btn-${book._id}`}
-                                onClick={() => setPendingAction({ type: "ARCHIVE", book })}
-                                disabled={isPending}
-                                className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-1.5 py-0.5 text-xs font-medium text-destructive/80 hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 font-[family-name:var(--font-bengali)]"
-                                title="সংরক্ষণাগারে পাঠান"
-                              >
-                                <Archive className="size-3" />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                              {book.status === "DRAFT" && (
+                                <>
+                                  <button
+                                    type="button"
+                                    id={`publish-btn-${book._id}`}
+                                    onClick={() => setPendingAction({ type: "PUBLISH", book })}
+                                    disabled={isPending}
+                                    className="inline-flex items-center gap-1 rounded-md border border-brand/30 bg-brand/10 px-2 py-1 text-xs font-semibold text-brand transition-colors hover:bg-brand/20 disabled:opacity-50"
+                                    title="বইটি প্রকাশ করুন"
+                                  >
+                                    <Upload className="size-3" />
+                                    প্রকাশ
+                                  </button>
+                                  <button
+                                    type="button"
+                                    id={`archive-btn-${book._id}`}
+                                    onClick={() => setPendingAction({ type: "ARCHIVE", book })}
+                                    disabled={isPending}
+                                    className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-xs font-medium text-destructive/80 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                                    title="সংরক্ষণাগারে পাঠান"
+                                  >
+                                    <Archive className="size-3" />
+                                    সংরক্ষণ
+                                  </button>
+                                </>
+                              )}
+
+                              {book.status === "PUBLISHED" && (
+                                <>
+                                  <button
+                                    type="button"
+                                    id={`quick-feature-btn-${book._id}`}
+                                    onClick={() => handleQuickToggleFeatured(book)}
+                                    disabled={isSavingOrder || (book.displayOrder > 8 && featuredBooks.length >= 8)}
+                                    className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold transition-colors disabled:opacity-40 ${
+                                      book.displayOrder <= 8
+                                        ? "border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20"
+                                        : "border border-border/60 bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
+                                    }`}
+                                    title={
+                                      book.displayOrder <= 8
+                                        ? "হোমপেজ ফিচার্ড থেকে সরান"
+                                        : featuredBooks.length >= 8
+                                        ? "সর্বোচ্চ ৮টি বই ইতিমধ্যে ফিচার্ড করা আছে"
+                                        : "হোমপেজে ফিচার্ড হিসেবে যোগ করুন"
+                                    }
+                                  >
+                                    <Star className={`size-3 ${book.displayOrder <= 8 ? "fill-amber-400 text-amber-500" : ""}`} />
+                                    {book.displayOrder <= 8 ? "ফিচার্ড" : "+ ফিচার্ড"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    id={`unpublish-btn-${book._id}`}
+                                    onClick={() => setPendingAction({ type: "UNPUBLISH", book })}
+                                    disabled={isPending}
+                                    className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                                    title="বইটি প্রত্যাহার করে ড্রাফট করুন"
+                                  >
+                                    <EyeOff className="size-3" />
+                                    প্রত্যাহার
+                                  </button>
+                                  <button
+                                    type="button"
+                                    id={`archive-btn-${book._id}`}
+                                    onClick={() => setPendingAction({ type: "ARCHIVE", book })}
+                                    disabled={isPending}
+                                    className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-xs font-medium text-destructive/80 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                                    title="সংরক্ষণাগারে পাঠান"
+                                  >
+                                    <Archive className="size-3" />
+                                    সংরক্ষণ
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
               {/* Pagination */}

@@ -122,7 +122,7 @@ export default async function CheckoutPage({ params }: CheckoutPageProps) {
               </h2>
 
               <div className="flex gap-4">
-                <div className="relative aspect-[3/4] w-20 shrink-0 overflow-hidden rounded-lg border border-border/50 bg-muted">
+                <div className="relative aspect-[2/3] w-20 shrink-0 overflow-hidden rounded-lg border border-border/50 bg-muted">
                   {book.coverImage ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img

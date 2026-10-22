@@ -361,7 +361,7 @@ export function MultiBookCheckoutForm({
           <div className="max-h-[360px] overflow-y-auto space-y-3.5 pr-1 divide-y divide-border/30">
             {displayItems.map((item, idx) => (
               <div key={item.bookId} className={`flex gap-3 pt-3 first:pt-0 ${item.isOwned || item.isUnavailable ? "opacity-60" : ""}`}>
-                <div className="relative aspect-[3/4] w-14 shrink-0 overflow-hidden rounded-md border border-border/50 bg-muted">
+                <div className="relative aspect-[2/3] w-14 shrink-0 overflow-hidden rounded-md border border-border/50 bg-muted">
                   {item.coverImage ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img

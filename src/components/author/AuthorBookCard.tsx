@@ -5,6 +5,7 @@ import { useTransition } from "react";
 import { BookStatusBadge } from "@/components/author/BookStatusBadge";
 import { publishBook, archiveBook, unpublishBook } from "@/actions/books";
 import type { AuthorBookListItem } from "@/types/author";
+import { BookCoverImage } from "@/components/books/BookCoverImage";
 
 interface AuthorBookCardProps {
   book: AuthorBookListItem;
@@ -12,9 +13,6 @@ interface AuthorBookCardProps {
 
 export function AuthorBookCard({ book }: AuthorBookCardProps) {
   const [isPending, startTransition] = useTransition();
-
-  const hue =
-    book.title.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0) % 360;
 
   function handlePublish() {
     startTransition(async () => {
@@ -60,36 +58,12 @@ export function AuthorBookCard({ book }: AuthorBookCardProps) {
       }`}
     >
       {/* Cover thumbnail */}
-      <div className="h-28 w-20 shrink-0 overflow-hidden rounded-lg border border-border/40 bg-muted sm:h-32 sm:w-24">
-        {book.coverImage ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={book.coverImage}
-            alt=""
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div
-            className="flex h-full w-full items-center justify-center"
-            style={{ background: `oklch(0.92 0.04 ${hue})` }}
-            aria-hidden="true"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              style={{ color: `oklch(0.45 0.08 ${hue})` }}
-            >
-              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
-            </svg>
-          </div>
-        )}
+      <div className="w-20 sm:w-24 shrink-0 overflow-hidden rounded-lg border border-border/40 shadow-xs">
+        <BookCoverImage
+          src={book.coverImage}
+          title={book.title}
+          aspectRatio="aspect-[2/3]"
+        />
       </div>
 
       {/* Info */}

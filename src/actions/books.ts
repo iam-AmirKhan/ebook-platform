@@ -16,6 +16,9 @@
  * - ObjectId format is validated before DB queries.
  */
 
+import fs from "fs/promises";
+import path from "path";
+import crypto from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAuthor } from "@/lib/auth/authorization";
@@ -34,6 +37,108 @@ import type { ActionResult } from "@/types/author";
 import type { Types } from "mongoose";
 import { sendAdminBookPublishedEmail } from "@/lib/notifications/admin-book-published";
 import { sendAuthorBookPublishedEmail } from "@/lib/notifications/author-book-published";
+
+function safeRevalidatePath(pathStr: string): void {
+  try {
+    revalidatePath(pathStr);
+  } catch {
+    // Safe fallback when invoked outside Next.js request context (e.g. unit/regression tests)
+  }
+}
+
+function isValidImageBuffer(buffer: Buffer, mimeType: string): boolean {
+  if (mimeType === "image/jpeg") {
+    return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  }
+  if (mimeType === "image/png") {
+    return (
+      buffer.length >= 8 &&
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47 &&
+      buffer[4] === 0x0d &&
+      buffer[5] === 0x0a &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0x0a
+    );
+  }
+  if (mimeType === "image/webp") {
+    return (
+      buffer.length >= 12 &&
+      buffer.toString("ascii", 0, 4) === "RIFF" &&
+      buffer.toString("ascii", 8, 12) === "WEBP"
+    );
+  }
+  return false;
+}
+
+async function handleBookCoverUpload(
+  formData: FormData,
+  authorId: string,
+  existingCover?: string | null
+): Promise<{ success: boolean; coverUrl?: string | null; error?: string }> {
+  const removeCover = formData.get("removeCover") === "true";
+  if (removeCover) {
+    return { success: true, coverUrl: null };
+  }
+
+  const coverFile = formData.get("coverFile");
+  if (coverFile instanceof File && coverFile.size > 0) {
+    // 1. Max size: 5MB
+    const MAX_SIZE = 5 * 1024 * 1024;
+    if (coverFile.size > MAX_SIZE) {
+      return {
+        success: false,
+        error: "কভার ছবির সাইজ সর্বোচ্চ ৫ মেগাবাইট (5MB) হতে পারে।",
+      };
+    }
+
+    // 2. MIME type validation
+    const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+    if (!ALLOWED_TYPES.includes(coverFile.type)) {
+      return {
+        success: false,
+        error: "শুধুমাত্র JPEG, PNG অথবা WebP ফরম্যাটের ছবি গ্রহণযোগ্য।",
+      };
+    }
+
+    // 3. Binary magic bytes validation
+    const buffer = Buffer.from(await coverFile.arrayBuffer());
+    if (!isValidImageBuffer(buffer, coverFile.type)) {
+      return {
+        success: false,
+        error: "অবৈধ অথবা করাপ্টেড কভার ইমেজ ফাইল নির্বাচন করা হয়েছে।",
+      };
+    }
+
+    // 4. Save to public/uploads/covers/
+    const ext =
+      coverFile.type === "image/png"
+        ? "png"
+        : coverFile.type === "image/webp"
+        ? "webp"
+        : "jpg";
+    const safeFileName = `cover-${authorId}-${Date.now()}-${crypto
+      .randomBytes(4)
+      .toString("hex")}.${ext}`;
+
+    const uploadDir = path.join(process.cwd(), "public", "uploads", "covers");
+    await fs.mkdir(uploadDir, { recursive: true });
+    await fs.writeFile(path.join(uploadDir, safeFileName), buffer);
+
+    return { success: true, coverUrl: `/uploads/covers/${safeFileName}` };
+  }
+
+  // If no file uploaded, check for explicit coverImage input URL or fallback to existingCover
+  const manualCoverImage = (formData.get("coverImage") as string)?.trim();
+  if (manualCoverImage) {
+    return { success: true, coverUrl: manualCoverImage };
+  }
+
+  // Preserve existing cover if not explicitly removed
+  return { success: true, coverUrl: existingCover ?? null };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -177,7 +282,14 @@ export async function createBook(
     // 2. Resolve Author._id from session
     const authorId = await resolveAuthorId(user.id);
 
-    // 3. Parse and validate form data
+    // 3. Process cover image upload / URL
+    const coverUploadRes = await handleBookCoverUpload(formData, authorId);
+    if (!coverUploadRes.success) {
+      const err = coverUploadRes.error || "কভার ছবি আপলোড ব্যর্থ হয়েছে";
+      return { success: false, error: err, fieldErrors: { coverImage: [err] } };
+    }
+
+    // 4. Parse and validate form data
     const rawSlug = formData.get("slug");
     const rawTitle = formData.get("title");
 
@@ -186,7 +298,7 @@ export async function createBook(
       slug:
         String(rawSlug ?? "").trim() ||
         generateSlug(String(rawTitle ?? "")),
-      coverImage: (formData.get("coverImage") as string) || null,
+      coverImage: coverUploadRes.coverUrl || null,
       categoryId: String(formData.get("categoryId") ?? ""),
       language: String(formData.get("language") ?? "বাংলা"),
       summary: String(formData.get("summary") ?? ""),
@@ -249,7 +361,7 @@ export async function createBook(
       status: "DRAFT",
     });
 
-    revalidatePath("/author");
+    safeRevalidatePath("/author");
 
     return {
       success: true,
@@ -292,7 +404,7 @@ export async function updateBook(
       _id: bookId,
       author: authorId,
     })
-      .select("_id status slug")
+      .select("_id status slug coverImage")
       .lean();
 
     if (!existingBook) {
@@ -302,7 +414,14 @@ export async function updateBook(
       };
     }
 
-    // 5. Parse and validate
+    // 5. Process cover image upload / URL (preserves existing cover if not modified)
+    const coverUploadRes = await handleBookCoverUpload(formData, authorId, existingBook.coverImage);
+    if (!coverUploadRes.success) {
+      const err = coverUploadRes.error || "কভার ছবি আপলোড ব্যর্থ হয়েছে";
+      return { success: false, error: err, fieldErrors: { coverImage: [err] } };
+    }
+
+    // 6. Parse and validate
     const rawSlug = formData.get("slug");
     const rawTitle = formData.get("title");
 
@@ -311,7 +430,7 @@ export async function updateBook(
       slug:
         String(rawSlug ?? "").trim() ||
         generateSlug(String(rawTitle ?? "")),
-      coverImage: (formData.get("coverImage") as string) || null,
+      coverImage: coverUploadRes.coverUrl || null,
       categoryId: String(formData.get("categoryId") ?? ""),
       language: String(formData.get("language") ?? "বাংলা"),
       summary: String(formData.get("summary") ?? ""),
@@ -548,9 +667,9 @@ export async function publishBook(bookId: string): Promise<ActionResult> {
       }
     }
 
-    revalidatePath("/author");
-    revalidatePath("/books");
-    revalidatePath(`/books/${book.slug}`);
+    safeRevalidatePath("/author");
+    safeRevalidatePath("/books");
+    safeRevalidatePath(`/books/${book.slug}`);
 
     return { success: true, bookId, slug: book.slug };
   } catch (error) {
@@ -601,10 +720,10 @@ export async function unpublishBook(bookId: string): Promise<ActionResult> {
       };
     }
 
-    revalidatePath("/");
-    revalidatePath("/author");
-    revalidatePath("/books");
-    revalidatePath(`/books/${book.slug}`);
+    safeRevalidatePath("/");
+    safeRevalidatePath("/author");
+    safeRevalidatePath("/books");
+    safeRevalidatePath(`/books/${book.slug}`);
 
     return { success: true, bookId };
   } catch (error) {
@@ -651,10 +770,10 @@ export async function archiveBook(bookId: string): Promise<ActionResult> {
       };
     }
 
-    revalidatePath("/");
-    revalidatePath("/author");
-    revalidatePath("/books");
-    revalidatePath(`/books/${book.slug}`);
+    safeRevalidatePath("/");
+    safeRevalidatePath("/author");
+    safeRevalidatePath("/books");
+    safeRevalidatePath(`/books/${book.slug}`);
 
     return { success: true, bookId };
   } catch (error) {

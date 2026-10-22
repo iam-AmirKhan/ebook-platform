@@ -23,6 +23,7 @@ function LoginForm() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const registered = searchParams.get("registered");
+  const resetSuccess = searchParams.get("resetSuccess");
   const urlError = searchParams.get("error");
 
   const getErrorMessage = () => {
@@ -109,6 +110,12 @@ function LoginForm() {
           </div>
         )}
 
+        {resetSuccess && (
+          <div className="mb-5 rounded-md bg-green-50 p-3 text-sm text-green-700 dark:bg-green-900/30 dark:text-green-400 font-[family-name:var(--font-bengali)]">
+            আপনার পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে! অনুগ্রহ করে নতুন পাসওয়ার্ড দিয়ে সাইন ইন করুন।
+          </div>
+        )}
+
         {errorMessage && (
           <div className="mb-5 rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-900/50 dark:text-red-200">
             {errorMessage}
@@ -172,9 +179,17 @@ function LoginForm() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="password" className="text-sm font-medium leading-none dark:text-gray-200">
-              Password
-            </label>
+            <div className="flex items-center justify-between">
+              <label htmlFor="password" className="text-sm font-medium leading-none dark:text-gray-200">
+                Password
+              </label>
+              <Link
+                href="/forgot-password"
+                className="text-xs text-brand hover:underline font-[family-name:var(--font-bengali)]"
+              >
+                পাসওয়ার্ড ভুলে গেছেন?
+              </Link>
+            </div>
             <input
               id="password"
               type="password"

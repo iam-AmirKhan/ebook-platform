@@ -12,6 +12,7 @@ import { useActionState, useEffect, useRef, useState, useCallback } from "react"
 import { Button } from "@/components/ui/button";
 import { generateSlug, countSubstantiveChapters } from "@/validators/book";
 import type { ActionResult, BookFormData, CategoryOption, ChapterFormData } from "@/types/author";
+import { BookCoverImage } from "@/components/books/BookCoverImage";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -81,6 +82,80 @@ export function BookForm({
   const [title, setTitle] = useState(defaultValues?.title ?? "");
   const [slug, setSlug] = useState(defaultValues?.slug ?? "");
   const [slugEdited, setSlugEdited] = useState(!!defaultValues?.slug);
+
+  // ── Cover Image & File Upload ──────────────────────────────────────────
+  const [selectedCoverFile, setSelectedCoverFile] = useState<File | null>(null);
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
+  const [manualCoverUrl, setManualCoverUrl] = useState(defaultValues?.coverImage ?? "");
+  const [removeCover, setRemoveCover] = useState(false);
+  const [coverClientError, setCoverClientError] = useState<string | null>(null);
+  const [showUrlOption, setShowUrlOption] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Clean up object URL when component unmounts or file changes
+  useEffect(() => {
+    return () => {
+      if (coverPreviewUrl && coverPreviewUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(coverPreviewUrl);
+      }
+    };
+  }, [coverPreviewUrl]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setCoverClientError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Client-side validations
+    const MAX_SIZE = 5 * 1024 * 1024; // 5MB
+    if (file.size > MAX_SIZE) {
+      setCoverClientError("কভার ছবির আকার সর্বোচ্চ ৫ মেগাবাইট (5MB) হতে পারে।");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setCoverClientError("শুধুমাত্র JPEG, PNG এবং WebP ছবি আপলোড করা যাবে।");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    if (coverPreviewUrl && coverPreviewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
+
+    setSelectedCoverFile(file);
+    setCoverPreviewUrl(URL.createObjectURL(file));
+    setRemoveCover(false);
+  };
+
+  const handleClearSelectedFile = () => {
+    if (coverPreviewUrl && coverPreviewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
+    setSelectedCoverFile(null);
+    setCoverPreviewUrl(null);
+    setCoverClientError(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleRemoveExistingCover = () => {
+    handleClearSelectedFile();
+    setRemoveCover(true);
+    setManualCoverUrl("");
+  };
+
+  const handleRestoreExistingCover = () => {
+    setRemoveCover(false);
+    setManualCoverUrl(defaultValues?.coverImage ?? "");
+  };
+
+  const currentCoverDisplay = removeCover
+    ? null
+    : coverPreviewUrl
+    ? coverPreviewUrl
+    : manualCoverUrl || defaultValues?.coverImage || null;
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setTitle(e.target.value);
@@ -175,6 +250,7 @@ export function BookForm({
     <form
       ref={formRef}
       action={formAction}
+      encType="multipart/form-data"
       className="flex flex-col gap-8"
       noValidate
     >
@@ -320,28 +396,175 @@ export function BookForm({
           />
         </div>
 
-        {/* Cover image URL */}
-        <div>
-          <label htmlFor="coverImage" className={labelClass}>
-            কভার ইমেজ URL
+        {/* Cover image upload & preview */}
+        <div className="space-y-3 rounded-xl border border-border/70 bg-muted/20 p-4 sm:p-5">
+          <label className={labelClass}>
+            কভার ছবি
           </label>
-          <input
-            id="coverImage"
-            name="coverImage"
-            type="url"
-            defaultValue={defaultValues?.coverImage ?? ""}
-            className={inputClass}
-            placeholder="https://example.com/cover.jpg"
-            dir="ltr"
-          />
-          <p className="mt-1 text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
-            বর্তমানে শুধু HTTPS URL গ্রহণযোগ্য। ফাইল আপলোড পরবর্তী সংস্করণে আসবে।
-          </p>
-          {state.fieldErrors?.coverImage && (
-            <p className="mt-1 text-xs text-destructive font-[family-name:var(--font-bengali)]">
-              {state.fieldErrors.coverImage[0]}
-            </p>
-          )}
+          <div className="flex flex-col sm:flex-row gap-5 items-start">
+            {/* Visual Preview */}
+            <div className="w-28 sm:w-32 flex-shrink-0 shadow-md rounded-lg overflow-hidden border border-border bg-card">
+              <BookCoverImage
+                src={currentCoverDisplay}
+                title={title || "কভার প্রিভিউ"}
+                aspectRatio="aspect-[2/3]"
+              />
+            </div>
+
+            {/* Controls */}
+            <div className="flex-1 space-y-3 w-full">
+              <p className="text-xs text-muted-foreground font-[family-name:var(--font-bengali)] leading-relaxed">
+                ডিভাইসের গ্যালারি অথবা ফাইলস থেকে ২:৩ অনুপাতের স্পষ্ট কভার ছবি আপলোড করুন (JPEG, PNG, WebP — সর্বোচ্চ ৫MB)।
+              </p>
+
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                id="coverFile"
+                name="coverFile"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleFileChange}
+                className="hidden"
+                aria-label="কভার ছবি নির্বাচন করুন"
+              />
+
+              {/* Hidden flag if cover was explicitly removed */}
+              <input
+                type="hidden"
+                name="removeCover"
+                value={removeCover ? "true" : "false"}
+              />
+
+              {/* Action buttons */}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="font-[family-name:var(--font-bengali)] text-xs h-9 cursor-pointer"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="mr-1.5"
+                    aria-hidden="true"
+                  >
+                    <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+                    <circle cx="9" cy="9" r="2" />
+                    <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+                  </svg>
+                  কভার ছবি নির্বাচন করুন
+                </Button>
+
+                {selectedCoverFile && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleClearSelectedFile}
+                    className="text-muted-foreground hover:text-destructive font-[family-name:var(--font-bengali)] text-xs h-9"
+                  >
+                    ছবি বাতিল করুন
+                  </Button>
+                )}
+
+                {!selectedCoverFile && (defaultValues?.coverImage || manualCoverUrl) && !removeCover && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRemoveExistingCover}
+                    className="text-destructive hover:bg-destructive/10 font-[family-name:var(--font-bengali)] text-xs h-9"
+                  >
+                    কভার মুছে ফেলুন
+                  </Button>
+                )}
+
+                {removeCover && (
+                  <div className="flex items-center gap-2 text-xs font-[family-name:var(--font-bengali)]">
+                    <span className="text-destructive font-medium">কভার মুছে ফেলা হবে</span>
+                    <button
+                      type="button"
+                      onClick={handleRestoreExistingCover}
+                      className="text-primary underline hover:opacity-80 cursor-pointer"
+                    >
+                      পূর্বাবস্থায় ফেরান
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {selectedCoverFile && (
+                <p className="text-xs text-muted-foreground font-mono">
+                  নির্বাচিত: {selectedCoverFile.name} ({(selectedCoverFile.size / (1024 * 1024)).toFixed(2)} MB)
+                </p>
+              )}
+
+              {/* Client error */}
+              {coverClientError && (
+                <p className="text-xs text-destructive font-[family-name:var(--font-bengali)]">
+                  {coverClientError}
+                </p>
+              )}
+
+              {/* Server error */}
+              {state.fieldErrors?.coverImage && (
+                <p className="text-xs text-destructive font-[family-name:var(--font-bengali)]">
+                  {state.fieldErrors.coverImage[0]}
+                </p>
+              )}
+
+              {/* URL fallback toggle */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowUrlOption((prev) => !prev)}
+                  className="text-xs text-muted-foreground hover:text-foreground underline font-[family-name:var(--font-bengali)] cursor-pointer"
+                >
+                  {showUrlOption ? "URL ইনপুট লুকান" : "অথবা ছবির সরাসরি URL ব্যবহার করুন"}
+                </button>
+
+                {showUrlOption && (
+                  <div className="mt-2 space-y-1">
+                    <input
+                      id="coverImage"
+                      name="coverImage"
+                      type="url"
+                      value={removeCover ? "" : manualCoverUrl}
+                      onChange={(e) => {
+                        setManualCoverUrl(e.target.value);
+                        if (removeCover) setRemoveCover(false);
+                      }}
+                      className={inputClass}
+                      placeholder="https://example.com/cover.jpg"
+                      dir="ltr"
+                    />
+                    <p className="text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
+                      যদি কোনো ফাইল নির্বাচন না করা থাকে, তবে এই URL কভার হিসেবে সংরক্ষিত হবে।
+                    </p>
+                  </div>
+                )}
+
+                {/* Hidden input to retain manual/existing coverUrl when URL input is collapsed */}
+                {!showUrlOption && (
+                  <input
+                    type="hidden"
+                    name="coverImage"
+                    value={removeCover ? "" : manualCoverUrl}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
