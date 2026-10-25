@@ -5,6 +5,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
 import { MessengerChatButton } from "@/components/layout/MessengerChatButton";
 import { CartProvider } from "@/context/CartContext";
+import { Analytics } from "@vercel/analytics/next";
 
 // Clean Latin sans font for numbers, English text, and modern UI
 const inter = Inter({
@@ -55,6 +56,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <Footer />
           <MessengerChatButton />
         </CartProvider>
+        <Analytics />
       </body>
     </html>
   );
