@@ -83,6 +83,59 @@ export function BookForm({
   const [slug, setSlug] = useState(defaultValues?.slug ?? "");
   const [slugEdited, setSlugEdited] = useState(!!defaultValues?.slug);
 
+  // ── Pricing state & client-side validation ──────────────────────────────
+  const [price, setPrice] = useState<string>(() => {
+    if (defaultValues?.price !== undefined && defaultValues?.price !== null) {
+      return String(defaultValues.price);
+    }
+    return "100";
+  });
+  const [discountPrice, setDiscountPrice] = useState<string>(() => {
+    if (defaultValues?.discountPrice !== undefined && defaultValues?.discountPrice !== null) {
+      return String(defaultValues.discountPrice);
+    }
+    return "";
+  });
+  const [priceClientError, setPriceClientError] = useState<string | null>(null);
+  const [discountPriceClientError, setDiscountPriceClientError] = useState<string | null>(null);
+
+  const validatePrice = (val: string): boolean => {
+    if (!val || val.trim() === "") {
+      setPriceClientError("বইয়ের মূল্য সর্বনিম্ন ১০০ টাকা হতে হবে (ন্যূনতম ৳১০০)");
+      return false;
+    }
+    const num = Number(val);
+    if (isNaN(num) || num < 100) {
+      setPriceClientError("বইয়ের মূল্য সর্বনিম্ন ১০০ টাকা হতে হবে (ন্যূনতম ৳১০০)");
+      return false;
+    }
+    setPriceClientError(null);
+    return true;
+  };
+
+  const validateDiscountPrice = (dVal: string, pVal: string): boolean => {
+    if (!dVal || dVal.trim() === "") {
+      setDiscountPriceClientError(null);
+      return true;
+    }
+    const dNum = Number(dVal);
+    if (isNaN(dNum) || dNum < 100) {
+      setDiscountPriceClientError("ছাড়ের মূল্য সর্বনিম্ন ১০০ টাকা হতে হবে (ন্যূনতম ৳১০০)");
+      return false;
+    }
+    if (dNum > 300) {
+      setDiscountPriceClientError("ছাড়ের মূল্য সর্বোচ্চ ৩০০ টাকা হতে হবে (সর্বোচ্চ ৳৩০০)");
+      return false;
+    }
+    const pNum = Number(pVal);
+    if (!isNaN(pNum) && dNum > pNum) {
+      setDiscountPriceClientError("ছাড়ের মূল্য মূল বইয়ের মূল্যের চেয়ে বেশি হতে পারবে না");
+      return false;
+    }
+    setDiscountPriceClientError(null);
+    return true;
+  };
+
   // ── Cover Image & File Upload ──────────────────────────────────────────
   const [selectedCoverFile, setSelectedCoverFile] = useState<File | null>(null);
   const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
@@ -246,10 +299,23 @@ export function BookForm({
     }
   }, [state.error]);
 
+  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    const isPriceValid = validatePrice(price);
+    const isDiscountValid = validateDiscountPrice(discountPrice, price);
+    if (!isPriceValid || !isDiscountValid) {
+      e.preventDefault();
+      const firstInvalidId = !isPriceValid ? "price" : "discountPrice";
+      const targetEl = document.getElementById(firstInvalidId);
+      targetEl?.scrollIntoView({ behavior: "smooth", block: "center" });
+      targetEl?.focus();
+    }
+  };
+
   return (
     <form
       ref={formRef}
       action={formAction}
+      onSubmit={handleFormSubmit}
       encType="multipart/form-data"
       className="flex flex-col gap-8"
       noValidate
@@ -676,20 +742,34 @@ export function BookForm({
                 name="price"
                 type="number"
                 min={100}
-                max={300}
                 step={1}
-                defaultValue={defaultValues?.price ? Math.max(100, defaultValues.price) : 100}
+                value={price}
+                onChange={(e) => {
+                  setPrice(e.target.value);
+                  validatePrice(e.target.value);
+                  if (discountPrice) {
+                    validateDiscountPrice(discountPrice, e.target.value);
+                  }
+                }}
+                onBlur={(e) => {
+                  validatePrice(e.target.value);
+                  if (discountPrice) {
+                    validateDiscountPrice(discountPrice, e.target.value);
+                  }
+                }}
                 className={`${inputClass} pl-7 font-[family-name:var(--font-bengali)]`}
                 placeholder="১০০"
-                aria-describedby={state.fieldErrors?.price ? "price-error" : "price-hint"}
+                aria-describedby={
+                  priceClientError || state.fieldErrors?.price ? "price-error" : "price-hint"
+                }
               />
             </div>
             <p id="price-hint" className="mt-1 text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
-              বইয়ের অনুমোদিত মূল্য ৳১০০ থেকে ৳৩০০ (ন্যূনতম ৳১০০, সর্বোচ্চ ৳৩০০)।
+              বইয়ের মূল্য সর্বনিম্ন ১০০ টাকা হতে হবে (ন্যূনতম ৳১০০)।
             </p>
-            {state.fieldErrors?.price && (
+            {(priceClientError || state.fieldErrors?.price?.[0]) && (
               <p id="price-error" className="mt-1 text-xs text-destructive font-[family-name:var(--font-bengali)]">
-                {state.fieldErrors.price[0]}
+                {priceClientError || state.fieldErrors?.price?.[0]}
               </p>
             )}
           </div>
@@ -708,17 +788,32 @@ export function BookForm({
                 id="discountPrice"
                 name="discountPrice"
                 type="number"
-                min={0}
+                min={100}
+                max={300}
                 step={1}
-                defaultValue={defaultValues?.discountPrice ?? ""}
+                value={discountPrice}
+                onChange={(e) => {
+                  setDiscountPrice(e.target.value);
+                  validateDiscountPrice(e.target.value, price);
+                }}
+                onBlur={(e) => {
+                  validateDiscountPrice(e.target.value, price);
+                }}
                 className={`${inputClass} pl-7`}
-                placeholder="—"
-                aria-describedby={state.fieldErrors?.discountPrice ? "discount-price-error" : undefined}
+                placeholder="১০০ - ৩০০"
+                aria-describedby={
+                  discountPriceClientError || state.fieldErrors?.discountPrice
+                    ? "discount-price-error"
+                    : "discount-price-hint"
+                }
               />
             </div>
-            {state.fieldErrors?.discountPrice && (
+            <p id="discount-price-hint" className="mt-1 text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
+              ছাড়ের মূল্য ৳১০০ থেকে ৳৩০০ এর মধ্যে হতে হবে (ঐচ্ছিক)।
+            </p>
+            {(discountPriceClientError || state.fieldErrors?.discountPrice?.[0]) && (
               <p id="discount-price-error" className="mt-1 text-xs text-destructive font-[family-name:var(--font-bengali)]">
-                {state.fieldErrors.discountPrice[0]}
+                {discountPriceClientError || state.fieldErrors?.discountPrice?.[0]}
               </p>
             )}
           </div>
@@ -742,10 +837,12 @@ export function BookForm({
           <div className="flex items-center gap-2">
             <Button
               type="submit"
+              name="actionIntent"
+              value="draft"
               disabled={isPending}
               variant="outline"
               size="sm"
-              className="font-[family-name:var(--font-bengali)] h-8 text-xs"
+              className="font-[family-name:var(--font-bengali)] h-8 text-xs cursor-pointer"
             >
               {isPending ? "সংরক্ষণ হচ্ছে…" : "ড্রাফট সংরক্ষণ করুন"}
             </Button>
@@ -810,17 +907,57 @@ export function BookForm({
       )}
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button
-          type="submit"
-          disabled={isPending}
-          className="font-[family-name:var(--font-bengali)]"
-        >
-          {isPending ? "সংরক্ষণ হচ্ছে…" : "ড্রাফট সংরক্ষণ করুন"}
-        </Button>
-
-        <p className="text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
-          বইটি প্রকাশ করতে ড্যাশবোর্ড থেকে &ldquo;প্রকাশ করুন&rdquo; বোতামটি ব্যবহার করুন।
-        </p>
+        {defaultValues?.status === "PUBLISHED" ? (
+          <>
+            <Button
+              type="submit"
+              name="actionIntent"
+              value="save"
+              disabled={isPending}
+              className="font-[family-name:var(--font-bengali)] cursor-pointer"
+            >
+              {isPending ? "সংরক্ষণ হচ্ছে…" : "পরিবর্তন সংরক্ষণ করুন"}
+            </Button>
+            <Button
+              type="submit"
+              name="actionIntent"
+              value="draft"
+              disabled={isPending}
+              variant="outline"
+              className="font-[family-name:var(--font-bengali)] cursor-pointer"
+            >
+              {isPending ? "সংরক্ষণ হচ্ছে…" : "ড্রাফট সংরক্ষণ করুন"}
+            </Button>
+            <p className="text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
+              &ldquo;ড্রাফট সংরক্ষণ করুন&rdquo; চাপলে বইটি ড্রাফট তালিকায় স্থানান্তরিত হবে।
+            </p>
+          </>
+        ) : (
+          <>
+            <Button
+              type="submit"
+              name="actionIntent"
+              value="draft"
+              disabled={isPending}
+              className="font-[family-name:var(--font-bengali)] cursor-pointer"
+            >
+              {isPending ? "সংরক্ষণ হচ্ছে…" : "ড্রাফট সংরক্ষণ করুন"}
+            </Button>
+            <Button
+              type="submit"
+              name="actionIntent"
+              value="publish"
+              disabled={isPending}
+              variant="outline"
+              className="font-[family-name:var(--font-bengali)] border-brand/40 text-brand hover:bg-brand/10 cursor-pointer"
+            >
+              {isPending ? "প্রকাশ হচ্ছে…" : "প্রকাশ করুন"}
+            </Button>
+            <p className="text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
+              বইটি ড্রাফট রাখতে &ldquo;ড্রাফট সংরক্ষণ করুন&rdquo; অথবা সরাসরি প্রকাশ করতে &ldquo;প্রকাশ করুন&rdquo; নির্বাচন করুন।
+            </p>
+          </>
+        )}
       </div>
     </form>
   );
@@ -986,9 +1123,11 @@ function ChapterEditor({
           <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-border/40">
             <Button
               type="submit"
+              name="actionIntent"
+              value="draft"
               disabled={isPending}
               size="sm"
-              className="font-[family-name:var(--font-bengali)] gap-1.5"
+              className="font-[family-name:var(--font-bengali)] gap-1.5 cursor-pointer"
             >
               {isPending ? "সংরক্ষণ হচ্ছে…" : "অধ্যায় সংরক্ষণ করুন"}
             </Button>

@@ -149,7 +149,11 @@ const BasBookSchema = z.object({
     .refine(
       (val) => {
         if (!val || val === "") return true;
-        return val.startsWith("/uploads/") || /^https?:\/\/.+/.test(val);
+        return (
+          val.startsWith("/uploads/") ||
+          val.startsWith("/api/covers/") ||
+          /^https?:\/\/.+/.test(val)
+        );
       },
       { message: "কভার ছবির জন্য বৈধ লিঙ্ক বা আপলোড ফাইল দিন" }
     )
@@ -187,15 +191,14 @@ const BasBookSchema = z.object({
 
   price: z
     .number()
-    .finite("Invalid price")
-    .min(0, "মূল্য ০ বা তার বেশি হতে হবে")
-    .max(100000, "মূল্য ১,০০,০০০ টাকার বেশি হতে পারবে না"),
+    .finite("বৈধ মূল্য দিন")
+    .min(100, "বইয়ের মূল্য সর্বনিম্ন ১০০ টাকা হতে হবে (ন্যূনতম ৳১০০)"),
 
   discountPrice: z
     .number()
-    .finite("Invalid discount price")
-    .min(0, "ছাড়ের মূল্য ০ বা তার বেশি হতে হবে")
-    .max(100000)
+    .finite("বৈধ ছাড়ের মূল্য দিন")
+    .min(100, "ছাড়ের মূল্য সর্বনিম্ন ১০০ টাকা হতে হবে (ন্যূনতম ৳১০০)")
+    .max(300, "ছাড়ের মূল্য সর্বোচ্চ ৩০০ টাকা হতে হবে (সর্বোচ্চ ৳৩০০)")
     .nullable()
     .optional(),
 
@@ -210,17 +213,11 @@ function hasValidDiscount(data: { price: number; discountPrice?: number | null }
 }
 
 const discountValidation = {
-  message: "Discount price cannot be greater than the regular price",
+  message: "ছাড়ের মূল্য মূল বইয়ের মূল্যের চেয়ে বেশি হতে পারবে না",
   path: ["discountPrice"],
 };
 
-export const BookCreateSchema = BasBookSchema.extend({
-  price: z
-    .number()
-    .finite("বৈধ মূল্য দিন")
-    .min(100, "বইয়ের মূল্য সর্বনিম্ন ১০০ টাকা হতে হবে (ন্যূনতম ৳১০০)")
-    .max(300, "বইয়ের মূল্য সর্বোচ্চ ৩০০ টাকা হতে হবে (সর্বোচ্চ ৳৩০০)"),
-}).refine(hasValidDiscount, discountValidation);
+export const BookCreateSchema = BasBookSchema.refine(hasValidDiscount, discountValidation);
 
 export const BookUpdateSchema = BasBookSchema.refine(hasValidDiscount, discountValidation);
 
@@ -237,11 +234,6 @@ export const BookPublishSchema = BasBookSchema.extend({
     .string()
     .trim()
     .min(10, "প্রকাশের আগে কমপক্ষে ১০ অক্ষরের বিবরণ দিন"),
-  price: z
-    .number()
-    .finite("বৈধ মূল্য দিন")
-    .min(100, "বইয়ের মূল্য সর্বনিম্ন ১০০ টাকা হতে হবে (ন্যূনতম ৳১০০)")
-    .max(300, "বইয়ের মূল্য সর্বোচ্চ ৩০০ টাকা হতে হবে (সর্বোচ্চ ৳৩০০)"),
 })
   .refine(hasValidDiscount, discountValidation)
   .refine((data) => countSubstantiveChapters(data.chapters) >= 5, {

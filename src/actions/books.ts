@@ -23,7 +23,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAuthor } from "@/lib/auth/authorization";
 import dbConnect from "@/lib/db/mongoose";
-import Book from "@/models/Book";
+import Book, { type BookStatus } from "@/models/Book";
 import Category from "@/models/Category";
 import Author from "@/models/Author";
 import User from "@/models/User";
@@ -37,6 +37,7 @@ import type { ActionResult } from "@/types/author";
 import type { Types } from "mongoose";
 import { sendAdminBookPublishedEmail } from "@/lib/notifications/admin-book-published";
 import { sendAuthorBookPublishedEmail } from "@/lib/notifications/author-book-published";
+import { uploadCoverToGridFS } from "@/lib/storage/gridfs";
 
 function safeRevalidatePath(pathStr: string): void {
   try {
@@ -73,7 +74,7 @@ function isValidImageBuffer(buffer: Buffer, mimeType: string): boolean {
   return false;
 }
 
-async function handleBookCoverUpload(
+export async function handleBookCoverUpload(
   formData: FormData,
   authorId: string,
   existingCover?: string | null
@@ -112,7 +113,7 @@ async function handleBookCoverUpload(
       };
     }
 
-    // 4. Save to public/uploads/covers/
+    // 4. Save to MongoDB GridFS durable storage
     const ext =
       coverFile.type === "image/png"
         ? "png"
@@ -123,11 +124,23 @@ async function handleBookCoverUpload(
       .randomBytes(4)
       .toString("hex")}.${ext}`;
 
-    const uploadDir = path.join(process.cwd(), "public", "uploads", "covers");
-    await fs.mkdir(uploadDir, { recursive: true });
-    await fs.writeFile(path.join(uploadDir, safeFileName), buffer);
+    const gridFsFile = await uploadCoverToGridFS(
+      buffer,
+      safeFileName,
+      coverFile.type,
+      { authorId }
+    );
 
-    return { success: true, coverUrl: `/uploads/covers/${safeFileName}` };
+    // 5. Best-effort local file write for local development caching
+    try {
+      const uploadDir = path.join(process.cwd(), "public", "uploads", "covers");
+      await fs.mkdir(uploadDir, { recursive: true });
+      await fs.writeFile(path.join(uploadDir, safeFileName), buffer);
+    } catch {
+      // Ignored in read-only / serverless environments (e.g. Vercel)
+    }
+
+    return { success: true, coverUrl: `/api/covers/${gridFsFile.id}` };
   }
 
   // If no file uploaded, check for explicit coverImage input URL or fallback to existingCover
@@ -404,7 +417,7 @@ export async function updateBook(
       _id: bookId,
       author: authorId,
     })
-      .select("_id status slug coverImage")
+      .select("_id status slug coverImage firstPublishedAt")
       .lean();
 
     if (!existingBook) {
@@ -424,6 +437,7 @@ export async function updateBook(
     // 6. Parse and validate
     const rawSlug = formData.get("slug");
     const rawTitle = formData.get("title");
+    const actionIntent = String(formData.get("actionIntent") || "").trim().toLowerCase();
 
     const input = {
       title: String(rawTitle ?? ""),
@@ -454,7 +468,7 @@ export async function updateBook(
     const data = parsed.data;
     attemptedSlug = data.slug;
 
-    // 6. Validate category exists
+    // 7. Validate category exists
     if (!isValidObjectId(data.categoryId)) {
       return { success: false, error: "বৈধ ক্যাটাগরি নির্বাচন করুন" };
     }
@@ -463,7 +477,7 @@ export async function updateBook(
       return { success: false, error: "নির্বাচিত ক্যাটাগরি পাওয়া যায়নি" };
     }
 
-    // 7. Check slug uniqueness (excluding this book)
+    // 8. Check slug uniqueness (excluding this book)
     const slugConflict = await Book.exists({
       slug: data.slug,
       _id: { $ne: bookId },
@@ -472,7 +486,19 @@ export async function updateBook(
       return duplicateSlugResult(data.slug);
     }
 
-    if (existingBook.status === "PUBLISHED") {
+    // 9. Status transition rules
+    const isDraftIntent = actionIntent === "draft";
+    const isPublishIntent = actionIntent === "publish";
+
+    let targetStatus: BookStatus = existingBook.status;
+    if (isDraftIntent) {
+      targetStatus = "DRAFT";
+    } else if (isPublishIntent) {
+      targetStatus = "PUBLISHED";
+    }
+
+    // If target status is PUBLISHED, enforce strict publish validation requirements
+    if (targetStatus === "PUBLISHED") {
       const publishCheck = BookPublishSchema.safeParse(data);
       if (!publishCheck.success) {
         const fieldErrors = publishCheck.error.flatten().fieldErrors as Record<string, string[]>;
@@ -482,31 +508,82 @@ export async function updateBook(
       }
     }
 
-    // 8. Update — only declared fields, no mass assignment
+    // 10. Update MongoDB record
+    const updateSet: Record<string, unknown> = {
+      title: data.title,
+      slug: data.slug,
+      description: data.description,
+      coverImage: data.coverImage || null,
+      category: data.categoryId,
+      price: data.price,
+      discountPrice: data.discountPrice ?? null,
+      language: data.language,
+      summary: data.summary,
+      learningOutcomes: data.learningOutcomes,
+      chapters: data.chapters.map((ch, i) => ({
+        order: ch.order ?? i + 1,
+        title: ch.title,
+        teaser: ch.teaser ?? "",
+        content: ch.content,
+        isPreview: ch.isPreview ?? false,
+      })),
+      status: targetStatus,
+    };
+
+    if (targetStatus === "DRAFT" && existingBook.status === "PUBLISHED") {
+      updateSet.displayOrder = 10000;
+    }
+
+    const isFirstPublication = targetStatus === "PUBLISHED" && !existingBook.firstPublishedAt;
+    if (isFirstPublication) {
+      updateSet.firstPublishedAt = new Date();
+    }
+
     await Book.updateOne(
       { _id: bookId, author: authorId },
-      {
-        $set: {
-          title: data.title,
-          slug: data.slug,
-          description: data.description,
-          coverImage: data.coverImage || null,
-          category: data.categoryId,
-          price: data.price,
-          discountPrice: data.discountPrice ?? null,
-          language: data.language,
-          summary: data.summary,
-          learningOutcomes: data.learningOutcomes,
-          chapters: data.chapters.map((ch, i) => ({
-            order: ch.order ?? i + 1,
-            title: ch.title,
-            teaser: ch.teaser ?? "",
-            content: ch.content,
-            isPreview: ch.isPreview ?? false,
-          })),
-        },
-      }
+      { $set: updateSet }
     );
+
+    if (isFirstPublication) {
+      try {
+        const [authorDoc, userDoc] = await Promise.all([
+          Author.findById(authorId).select("penName").lean(),
+          User.findById(user.id).select("email name").lean(),
+        ]);
+
+        const authorName = authorDoc?.penName || userDoc?.name || user.name || "লেখক";
+        const authorEmail = (userDoc?.email || user.email)?.trim().toLowerCase();
+
+        const notifications: Promise<unknown>[] = [
+          sendAdminBookPublishedEmail({
+            bookId: String(bookId),
+            bookTitle: data.title,
+            bookSlug: data.slug,
+            authorName,
+            price: data.price,
+            currency: "BDT",
+          }),
+        ];
+
+        if (authorEmail) {
+          notifications.push(
+            sendAuthorBookPublishedEmail({
+              recipientEmail: authorEmail,
+              recipientName: authorName,
+              bookTitle: data.title,
+              bookSlug: data.slug,
+            })
+          );
+        }
+
+        await Promise.allSettled(notifications);
+      } catch (notifyErr) {
+        console.error(
+          "[updateBook] Non-fatal notification error:",
+          notifyErr instanceof Error ? notifyErr.message : "Unknown notification error"
+        );
+      }
+    }
 
     // 9. Revalidate relevant paths (non-fatal post-save side effects)
     try {

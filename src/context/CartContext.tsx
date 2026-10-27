@@ -239,11 +239,11 @@ export function CartProvider({
         const session = await getSession();
         if (!isCancelled) {
           const sid = session?.user?.id ? String(session.user.id).trim() : null;
-          setSessionUserId((prev) => (prev === sid ? prev : sid));
+          setSessionUserId(sid);
         }
       } catch {
         if (!isCancelled) {
-          setSessionUserId((prev) => (prev === null ? prev : null));
+          setSessionUserId(null);
         }
       }
     }
@@ -266,7 +266,16 @@ export function CartProvider({
   // Load items whenever effectiveUserId is determined or changes
   useEffect(() => {
     if (effectiveUserId === undefined) {
-      return;
+      // Fallback: If session resolution encounters an error or takes too long,
+      // never leave dashboard or components stuck loading indefinitely
+      const fallbackTimer = setTimeout(() => {
+        if (!isLoaded) {
+          const loadedItems = loadCartFromStorage(null);
+          setItems(loadedItems);
+          setIsLoaded(true);
+        }
+      }, 2000);
+      return () => clearTimeout(fallbackTimer);
     }
 
     const timer = setTimeout(() => {
@@ -284,7 +293,7 @@ export function CartProvider({
     }, 0);
 
     return () => clearTimeout(timer);
-  }, [effectiveUserId]);
+  }, [effectiveUserId, isLoaded]);
 
   // Listen for storage events (cross-tab sync) and custom in-tab update events
   useEffect(() => {

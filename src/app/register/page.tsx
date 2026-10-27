@@ -72,11 +72,19 @@ function RegisterForm() {
       const result = await registerUser(registerInput);
       
       if (result.success) {
-        // Success! Redirect to login with callbackUrl if present.
-        const dest = callbackUrl
-          ? `/login?registered=true&callbackUrl=${encodeURIComponent(callbackUrl)}`
-          : "/login?registered=true";
-        router.push(dest);
+        // Automatically sign in the newly registered user and redirect directly to home page ('/')
+        const signInResult = await signIn("credentials", {
+          redirect: false,
+          email: registerInput.email,
+          password: registerInput.password,
+        });
+
+        if (signInResult?.error) {
+          router.push("/login?registered=true");
+        } else {
+          router.push("/");
+          router.refresh();
+        }
       } else {
         setServerError(result.error || "Registration failed. Please try again.");
       }
