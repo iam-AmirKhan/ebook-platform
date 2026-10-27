@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { getCurrentUser } from "@/lib/auth/session";
 import { MobileMenu } from "@/components/layout/MobileMenu";
 import { DesktopNav } from "@/components/layout/DesktopNav";
@@ -29,7 +30,14 @@ export async function Navbar() {
           className="flex items-center gap-2.5 text-foreground transition-opacity hover:opacity-80"
           aria-label="Pustoka home"
         >
-          <BookIcon />
+          <Image
+            src="/pustoka-navbar-logo.png"
+            alt="Pustoka logo"
+            width={321}
+            height={402}
+            priority
+            className="h-[32px] w-auto sm:h-[35px] object-contain shrink-0"
+          />
           <span className="text-lg font-bold tracking-tight">
             Pusto<span className="text-brand">ka</span>
           </span>
@@ -144,24 +152,6 @@ export async function Navbar() {
   );
 }
 
-function BookIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
-    </svg>
-  );
-}
 
 function AvatarIcon() {
   return (

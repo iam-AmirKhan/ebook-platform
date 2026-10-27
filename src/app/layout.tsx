@@ -35,6 +35,14 @@ export const metadata: Metadata = {
     "Discover, read, and purchase ebooks from Bangladesh's growing digital book marketplace. Support local authors and publishers.",
   keywords: ["ebook", "book", "Bangladesh", "digital library", "reading", "pustoka"],
   authors: [{ name: "Pustoka" }],
+  icons: {
+    icon: [
+      { url: "/icon.png", type: "image/png" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: "/icon.png",
+  },
   openGraph: {
     siteName: "Pustoka",
     type: "website",
