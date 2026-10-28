@@ -30,7 +30,7 @@ export default async function AccountPage() {
 
   return (
     <div className="flex flex-1 flex-col bg-muted/5 pb-16">
-      
+
       {/* ── Account Header ──────────────────────────────────────── */}
       <section className="border-b border-border/60 bg-background px-4 py-8 sm:px-6 lg:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 md:flex-row md:items-center md:justify-between">
@@ -80,7 +80,7 @@ export default async function AccountPage() {
 
       {/* ── Main Dashboard ──────────────────────────────────────── */}
       <div className="mx-auto w-full max-w-7xl space-y-12 px-4 py-8 sm:px-6 lg:px-8">
-        
+
         {/* Continue Reading (Recent Reads) */}
         {recentReads.length > 0 && (
           <section aria-labelledby="continue-reading-heading">

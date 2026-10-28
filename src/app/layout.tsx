@@ -7,6 +7,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
 import { MessengerChatButton } from "@/components/layout/MessengerChatButton";
 import { CartProvider } from "@/context/CartContext";
+import { Toaster } from "@/components/ui/toast";
 
 const GTM_ID = "GTM-5QV3R6G3";
 const FB_PIXEL_ID = "1130501046201127";
@@ -114,6 +115,7 @@ fbq('track', 'PageView');`,
           </main>
           <Footer />
           <MessengerChatButton />
+          <Toaster />
         </CartProvider>
         <Analytics />
       </body>

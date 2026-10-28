@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
 import { AuthorFinancialCards } from "./AuthorFinancialCards";
 import { AuthorBookSalesTable } from "./AuthorBookSalesTable";
 import { AuthorWithdrawalSection } from "./AuthorWithdrawalSection";
@@ -40,7 +42,19 @@ export function AuthorDashboardTabs({
   books,
   initialTab = "overview",
 }: AuthorDashboardTabsProps) {
-  const [activeTab, setActiveTab] = useState(initialTab);
+  const searchParams = useSearchParams();
+  const isSubmittedParam = searchParams.get("submitted") === "1";
+  const [activeTab, setActiveTab] = useState(
+    isSubmittedParam || searchParams.get("tab") === "books" ? "books" : initialTab
+  );
+  const toastFiredRef = useRef(false);
+
+  useEffect(() => {
+    if (isSubmittedParam && !toastFiredRef.current) {
+      toastFiredRef.current = true;
+      toast.success("বইটি সফলভাবে রিভিউয়ের জন্য জমা দেওয়া হয়েছে");
+    }
+  }, [isSubmittedParam]);
 
   const tabs = [
     { id: "overview", label: "আর্থিক ওভারভিউ", icon: LayoutDashboard },
@@ -122,12 +136,16 @@ export function AuthorDashboardTabs({
           </div>
 
           {/* Stats Bar */}
-          <div className="grid grid-cols-3 divide-x divide-border/60 overflow-hidden rounded-xl border border-border/60 bg-card text-center">
+          <div className="grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-border/60 overflow-hidden rounded-xl border border-border/60 bg-card text-center">
             {[
               { label: "মোট বই", count: books.length },
               {
                 label: "প্রকাশিত",
                 count: books.filter((b) => b.status === "PUBLISHED").length,
+              },
+              {
+                label: "রিভিউ অপেক্ষমাণ",
+                count: books.filter((b) => b.status === "PENDING_REVIEW").length,
               },
               {
                 label: "ড্রাফট",

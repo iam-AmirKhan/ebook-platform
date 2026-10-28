@@ -16,8 +16,11 @@
  * the function treats the user as not owning the book and strips locked content.
  */
 
+import { Types } from "mongoose";
 import dbConnect from "@/lib/db/mongoose";
 import Book from "@/models/Book";
+import Author from "@/models/Author";
+import Category from "@/models/Category";
 import Review from "@/models/Review";
 import Purchase from "@/models/Purchase";
 import type {
@@ -27,6 +30,10 @@ import type {
   ChapterPreview,
 } from "@/types/book-details";
 import type { HomepageBook } from "@/types/homepage";
+
+// Ensure models are registered in Mongoose runtime
+void Author;
+void Category;
 
 // ---------------------------------------------------------------------------
 // Internal: derive book ownership from session userId + database.
@@ -82,6 +89,18 @@ function applyChapterAccessControl(
     }));
 }
 
+function getSlugCandidates(slug: string): string[] {
+  let decodedSlug = slug;
+  try {
+    decodedSlug = decodeURIComponent(slug);
+  } catch {
+    // ignore malformed URI components
+  }
+  const rawLower = slug.trim().toLowerCase();
+  const decodedLower = decodedSlug.trim().toLowerCase();
+  return Array.from(new Set([rawLower, decodedLower, slug, decodedSlug]));
+}
+
 // ---------------------------------------------------------------------------
 // Public: getBookBySlug
 //
@@ -97,7 +116,8 @@ export async function getBookBySlug(
 ): Promise<BookDetails | null> {
   await dbConnect();
 
-  const book = await Book.findOne({ slug })
+  const candidates = getSlugCandidates(slug);
+  const book = await Book.findOne({ slug: { $in: candidates } })
     .populate<{
       author: { _id: unknown; penName: string; slug: string; bio: string | null; status?: string };
     }>("author", "penName slug bio status")
@@ -195,7 +215,8 @@ export async function getProtectedChapter(
 ): Promise<ProtectedChapterResult> {
   await dbConnect();
 
-  const book = await Book.findOne({ slug })
+  const candidates = getSlugCandidates(slug);
+  const book = await Book.findOne({ slug: { $in: candidates } })
     .select("_id title slug price currency chapters status author")
     .populate<{ author: { status?: string } | null }>("author", "status")
     .lean();
@@ -453,6 +474,10 @@ export async function getRelatedBooks(
   categoryId: string,
   excludeBookId: string
 ): Promise<HomepageBook[]> {
+  if (!categoryId || !Types.ObjectId.isValid(categoryId)) {
+    return [];
+  }
+
   await dbConnect();
 
   const raw = await Book.find({

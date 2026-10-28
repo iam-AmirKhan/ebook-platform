@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useTransition } from "react";
+import { Loader2 } from "lucide-react";
 import { BookStatusBadge } from "@/components/author/BookStatusBadge";
-import { publishBook, archiveBook, unpublishBook } from "@/actions/books";
+import { submitBookForReview, archiveBook, unpublishBook } from "@/actions/books";
+import { toast } from "@/components/ui/toast";
 import type { AuthorBookListItem } from "@/types/author";
 import { BookCoverImage } from "@/components/books/BookCoverImage";
 
@@ -12,24 +15,31 @@ interface AuthorBookCardProps {
 }
 
 export function AuthorBookCard({ book }: AuthorBookCardProps) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
-  function handlePublish() {
+  function handleSubmitForReview() {
     startTransition(async () => {
-      const result = await publishBook(book._id);
-      if (!result.success) {
-        alert(result.error ?? "প্রকাশে সমস্যা হয়েছে");
+      const result = await submitBookForReview(book._id);
+      if (result.success) {
+        toast.success(`"${book.title}" বইটি রিভিউয়ের জন্য জমা দেওয়া হয়েছে`);
+        router.refresh();
+      } else {
+        toast.error(result.error ?? "রিভিউয়ের জন্য জমা দিতে সমস্যা হয়েছে");
       }
     });
   }
 
   function handleUnpublish() {
-    if (!confirm("বইটি প্রত্যাহার করবেন? এটি পাবলিক ক্যাটালগ থেকে সরিয়ে নেওয়া হবে।"))
+    if (!confirm("বইটি প্রত্যাহার করবেন? এটি পাবলিক ক্যাটালগ থেকে সরিয়ে ড্রাফটে ফেরত নেওয়া হবে।"))
       return;
     startTransition(async () => {
       const result = await unpublishBook(book._id);
-      if (!result.success) {
-        alert(result.error ?? "প্রত্যাহারে সমস্যা হয়েছে");
+      if (result.success) {
+        toast.success(`"${book.title}" বইটি প্রত্যাহার করা হয়েছে`);
+        router.refresh();
+      } else {
+        toast.error(result.error ?? "প্রত্যাহারে সমস্যা হয়েছে");
       }
     });
   }
@@ -39,17 +49,27 @@ export function AuthorBookCard({ book }: AuthorBookCardProps) {
       return;
     startTransition(async () => {
       const result = await archiveBook(book._id);
-      if (!result.success) {
-        alert(result.error ?? "সংরক্ষণাগারে পাঠাতে সমস্যা হয়েছে");
+      if (result.success) {
+        toast.success(`"${book.title}" বইটি সংরক্ষণাগারে পাঠানো হয়েছে`);
+        router.refresh();
+      } else {
+        toast.error(result.error ?? "সংরক্ষণাগারে পাঠাতে সমস্যা হয়েছে");
       }
     });
   }
 
-  const updatedDate = new Date(book.updatedAt).toLocaleDateString("bn-BD", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  const updatedDate =
+    book.updatedAt && !isNaN(new Date(book.updatedAt).getTime())
+      ? new Date(book.updatedAt).toLocaleDateString("bn-BD", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        })
+      : "সম্প্রতি";
+
+  const formattedPrice = (
+    typeof book.price === "number" ? book.price : 0
+  ).toLocaleString("bn-BD");
 
   return (
     <div
@@ -60,6 +80,7 @@ export function AuthorBookCard({ book }: AuthorBookCardProps) {
       {/* Cover thumbnail */}
       <div className="w-20 sm:w-24 shrink-0 overflow-hidden rounded-lg border border-border/40 shadow-xs">
         <BookCoverImage
+          key={book.coverImage ?? book._id}
           src={book.coverImage}
           title={book.title}
           aspectRatio="aspect-[2/3]"
@@ -85,7 +106,7 @@ export function AuthorBookCard({ book }: AuthorBookCardProps) {
         </p>
 
         <p className="text-sm font-semibold text-foreground">
-          ৳ {book.price.toLocaleString("bn-BD")}
+          ৳ {formattedPrice}
         </p>
       </div>
 
@@ -112,11 +133,12 @@ export function AuthorBookCard({ book }: AuthorBookCardProps) {
         {book.status === "DRAFT" && (
           <button
             type="button"
-            onClick={handlePublish}
+            onClick={handleSubmitForReview}
             disabled={isPending}
-            className="flex h-8 items-center rounded-md bg-brand/10 px-3 text-xs font-semibold text-brand transition-colors hover:bg-brand/20 disabled:opacity-50 font-[family-name:var(--font-bengali)]"
+            className="flex h-8 items-center gap-1.5 rounded-md bg-amber-500/10 px-3 text-xs font-semibold text-amber-700 dark:text-amber-400 transition-colors hover:bg-amber-500/20 disabled:opacity-50 font-[family-name:var(--font-bengali)] cursor-pointer"
           >
-            প্রকাশ করুন
+            {isPending && <Loader2 className="size-3 animate-spin" />}
+            রিভিউয়ের জন্য জমা দিন
           </button>
         )}
 

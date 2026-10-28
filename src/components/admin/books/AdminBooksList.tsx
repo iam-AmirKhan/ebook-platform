@@ -14,6 +14,7 @@ import {
   adminSaveFeaturedBooks,
 } from "@/actions/admin-books";
 import { BookStatusBadge } from "@/components/author/BookStatusBadge";
+import { toast } from "@/components/ui/toast";
 import { Pagination } from "@/components/books/Pagination";
 import { Button } from "@/components/ui/button";
 import {
@@ -65,6 +66,7 @@ interface ActionFeedback {
 
 const TABS = [
   { id: "ALL", label: "সব বই", countKey: "all" as const },
+  { id: "PENDING_REVIEW", label: "রিভিউ অপেক্ষমাণ", countKey: "pendingReview" as const },
   { id: "PUBLISHED", label: "প্রকাশিত", countKey: "published" as const },
   { id: "DRAFT", label: "ড্রাফট", countKey: "draft" as const },
   { id: "ARCHIVED", label: "সংরক্ষিত", countKey: "archived" as const },
@@ -233,22 +235,28 @@ export function AdminBooksList({
       const bookIds = featuredBooks.map((b) => b._id);
       const res = await adminSaveFeaturedBooks(bookIds);
       if (res.success) {
+        const msg = "হোমপেজের ফিচার্ড বইয়ের তালিকা সফলভাবে সংরক্ষিত হয়েছে।";
         setFeedback({
           type: "success",
-          message: "হোমপেজের ফিচার্ড বইয়ের তালিকা সফলভাবে সংরক্ষিত হয়েছে।",
+          message: msg,
         });
+        toast.success(msg);
         router.refresh();
       } else {
+        const errMsg = res.error || "ফিচার্ড বই সংরক্ষণ করতে সমস্যা হয়েছে।";
         setFeedback({
           type: "error",
-          message: res.error || "ফিচার্ড বই সংরক্ষণ করতে সমস্যা হয়েছে।",
+          message: errMsg,
         });
+        toast.error(errMsg);
       }
     } catch {
+      const netMsg = "নেটওয়ার্ক ত্রুটি, অনুগ্রহ করে আবার চেষ্টা করুন।";
       setFeedback({
         type: "error",
-        message: "নেটওয়ার্ক ত্রুটি, অনুগ্রহ করে আবার চেষ্টা করুন।",
+        message: netMsg,
       });
+      toast.error(netMsg);
     } finally {
       setIsSavingOrder(false);
     }
@@ -283,24 +291,30 @@ export function AdminBooksList({
     try {
       const res = await adminSaveFeaturedBooks(nextList.map((b) => b._id));
       if (res.success) {
+        const msg = isCurrentlyFeatured
+          ? `"${book.title}" ফিচার্ড তালিকা থেকে সরানো হয়েছে।`
+          : `"${book.title}" হোমপেজে ফিচার্ড করা হয়েছে।`;
         setFeedback({
           type: "success",
-          message: isCurrentlyFeatured
-            ? `"${book.title}" ফিচার্ড তালিকা থেকে সরানো হয়েছে।`
-            : `"${book.title}" হোমপেজে ফিচার্ড করা হয়েছে।`,
+          message: msg,
         });
+        toast.success(msg);
         router.refresh();
       } else {
+        const errMsg = res.error || "পরিবর্তন সংরক্ষণ করতে ব্যর্থ হয়েছে।";
         setFeedback({
           type: "error",
-          message: res.error || "পরিবর্তন সংরক্ষণ করতে ব্যর্থ হয়েছে।",
+          message: errMsg,
         });
+        toast.error(errMsg);
       }
     } catch {
+      const netMsg = "নেটওয়ার্ক ত্রুটি, অনুগ্রহ করে আবার চেষ্টা করুন।";
       setFeedback({
         type: "error",
-        message: "নেটওয়ার্ক ত্রুটি, অনুগ্রহ করে আবার চেষ্টা করুন।",
+        message: netMsg,
       });
+      toast.error(netMsg);
     } finally {
       setIsSavingOrder(false);
     }
@@ -363,14 +377,18 @@ export function AdminBooksList({
           UNPUBLISH: `"${book.title}" বইটি প্রত্যাহার করে ড্রাফট করা হয়েছে।`,
           ARCHIVE: `"${book.title}" বইটি সংরক্ষণাগারে পাঠানো হয়েছে।`,
         };
-        setFeedback({ type: "success", message: messages[type] });
+        const msg = messages[type];
+        setFeedback({ type: "success", message: msg });
+        toast.success(msg);
         setPendingAction(null);
         router.refresh();
       } else {
+        const errMsg = res.error || "কার্যক্রম সম্পন্ন করতে সমস্যা হয়েছে।";
         setFeedback({
           type: "error",
-          message: res.error || "কার্যক্রম সম্পন্ন করতে সমস্যা হয়েছে।",
+          message: errMsg,
         });
+        toast.error(errMsg);
         setPendingAction(null);
       }
     });
@@ -993,7 +1011,7 @@ export function AdminBooksList({
                                 সম্পাদনা
                               </Link>
 
-                              {book.status === "DRAFT" && (
+                              {(book.status === "DRAFT" || book.status === "PENDING_REVIEW") && (
                                 <>
                                   <button
                                     type="button"

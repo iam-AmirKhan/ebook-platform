@@ -216,8 +216,13 @@ export async function adminUpdateBook(
       targetStatus = "PUBLISHED";
     }
 
-    // 9. If target status is PUBLISHED, enforce strict publish validation requirements
-    if (targetStatus === "PUBLISHED") {
+    // 9. If transitioning to PUBLISHED status, enforce strict publish validation requirements.
+    // For ordinary saves of an already-PUBLISHED book, BookUpdateSchema already validated all editable fields.
+    const isPublishingTransition =
+      targetStatus === "PUBLISHED" &&
+      (existingBook.status !== "PUBLISHED" || isPublishIntent);
+
+    if (isPublishingTransition) {
       const publishCheck = BookPublishSchema.safeParse(data);
       if (!publishCheck.success) {
         const fieldErrors = publishCheck.error.flatten().fieldErrors as Record<string, string[]>;
@@ -336,6 +341,7 @@ export async function adminUpdateBook(
       success: true,
       bookId,
       slug: data.slug,
+      coverUrl: (updateSet.coverImage as string | null) ?? null,
     };
   } catch (error) {
     console.error("adminUpdateBook error:", error);
@@ -426,7 +432,7 @@ export async function adminPublishBook(bookId: string): Promise<ActionResult> {
     }
 
     const publishResult = await Book.updateOne(
-      { _id: bookId, status: "DRAFT" },
+      { _id: bookId, status: { $in: ["DRAFT", "PENDING_REVIEW"] } },
       { $set: updateSet }
     );
 
@@ -500,6 +506,13 @@ export async function adminPublishBook(bookId: string): Promise<ActionResult> {
     revalidatePath(`/admin/books/${bookId}/edit`);
     revalidatePath("/books");
     revalidatePath(`/books/${book.slug}`);
+    try {
+      const encodedSlug = encodeURIComponent(book.slug);
+      if (encodedSlug !== book.slug) {
+        revalidatePath(`/books/${encodedSlug}`);
+      }
+    } catch {}
+    revalidatePath("/");
     revalidatePath("/author");
 
     return { success: true, bookId, slug: book.slug };
@@ -598,7 +611,7 @@ export async function adminArchiveBook(bookId: string): Promise<ActionResult> {
 
     // 5. Atomic status update
     const archiveResult = await Book.updateOne(
-      { _id: bookId, status: { $in: ["DRAFT", "PUBLISHED"] } },
+      { _id: bookId, status: { $in: ["DRAFT", "PENDING_REVIEW", "PUBLISHED"] } },
       { $set: { status: "ARCHIVED", displayOrder: 10000 } }
     );
 

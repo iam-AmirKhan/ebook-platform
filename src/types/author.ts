@@ -9,7 +9,7 @@ export interface AuthorBookListItem {
   title: string;
   slug: string;
   coverImage: string | null;
-  status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  status: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "ARCHIVED";
   price: number;
   currency: string;
   categoryName: string;
@@ -25,6 +25,7 @@ export interface CategoryOption {
 
 export interface BookFormData {
   _id?: string;
+  updatedAt?: string;
   title: string;
   slug: string;
   coverImage: string | null;
@@ -35,7 +36,7 @@ export interface BookFormData {
   learningOutcomes: string[];
   price: number;
   discountPrice: number | null;
-  status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  status: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "ARCHIVED";
   chapters: ChapterFormData[];
 }
 
@@ -54,6 +55,7 @@ export interface ActionResult {
   bookId?: string;
   slug?: string;
   message?: string;
+  coverUrl?: string | null;
 }
 
 export interface AuthorFinancialSummary {
@@ -68,7 +70,7 @@ export interface AuthorBookSaleItem {
   title: string;
   slug: string;
   coverImage: string | null;
-  status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  status: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "ARCHIVED";
   price: number;
   unitsSold: number;
   grossSales: number;

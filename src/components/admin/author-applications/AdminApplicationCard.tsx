@@ -12,9 +12,11 @@ import {
   adminUpdateAuthorDetailsAction,
   adminHideAuthorAction,
   adminRestoreAuthorAction,
+  reactivateAuthorApplicationAction,
   type AdminReviewActionResult,
 } from "@/actions/author-applications";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
 import {
   CheckCircle2,
   XCircle,
@@ -82,6 +84,7 @@ export function AdminApplicationCard({
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [showHideDialog, setShowHideDialog] = useState(false);
   const [showRestoreDialog, setShowRestoreDialog] = useState(false);
+  const [showReactivateDialog, setShowReactivateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
 
   // Form states for rejection
@@ -153,7 +156,10 @@ export function AdminApplicationCard({
       onActionFeedback?.(res);
       setShowApproveDialog(false);
       if (res.success) {
+        toast.success(res.message || "আবেদন সফলভাবে অনুমোদন করা হয়েছে।");
         router.refresh();
+      } else {
+        toast.error(res.error || "অনুমোদন করতে সমস্যা হয়েছে।");
       }
     });
   };
@@ -180,7 +186,10 @@ export function AdminApplicationCard({
       onActionFeedback?.(res);
       setShowRejectDialog(false);
       if (res.success) {
+        toast.success(res.message || "আবেদন সফলভাবে প্রত্যাখ্যান করা হয়েছে।");
         router.refresh();
+      } else {
+        toast.error(res.error || "প্রত্যাখ্যান করতে সমস্যা হয়েছে।");
       }
     });
   };
@@ -195,7 +204,10 @@ export function AdminApplicationCard({
       onActionFeedback?.(res);
       setShowHideDialog(false);
       if (res.success) {
+        toast.success(res.message || "লেখক সফলভাবে লুকানো হয়েছে।");
         router.refresh();
+      } else {
+        toast.error(res.error || "লুকাতে সমস্যা হয়েছে।");
       }
     });
   };
@@ -204,13 +216,36 @@ export function AdminApplicationCard({
     setFeedback(null);
     onActionFeedback?.(null);
     startTransition(async () => {
-      const targetId = application.authorId || application._id;
+      const targetId = application.authorId || application.applicationId || application._id;
       const res = await adminRestoreAuthorAction(targetId);
       setFeedback(res);
       onActionFeedback?.(res);
       setShowRestoreDialog(false);
       if (res.success) {
+        toast.success(res.message || "লেখক সফলভাবে পুনরুদ্ধার করা হয়েছে।");
         router.refresh();
+      } else {
+        toast.error(res.error || "পুনরুদ্ধার করতে সমস্যা হয়েছে।");
+      }
+    });
+  };
+
+  const handleReactivate = () => {
+    setFeedback(null);
+    onActionFeedback?.(null);
+    startTransition(async () => {
+      const targetId =
+        application.applicationId || application.authorId || application._id;
+      const res = await reactivateAuthorApplicationAction(targetId);
+      setFeedback(res);
+      onActionFeedback?.(res);
+      setShowReactivateDialog(false);
+      setShowRestoreDialog(false);
+      if (res.success) {
+        toast.success(res.message || "লেখক আবেদন সফলভাবে আবার সক্রিয় করা হয়েছে।");
+        router.refresh();
+      } else {
+        toast.error(res.error || "আবার সক্রিয় করতে সমস্যা হয়েছে।");
       }
     });
   };
@@ -697,9 +732,8 @@ export function AdminApplicationCard({
             </>
           )}
 
-          {/* Action for Rejected Authors (Restore if author record exists / rejected author workflow) */}
-          {application.status === "REJECTED" &&
-            (!!application.authorId || application.isAuthorRejected) && (
+          {/* Action for Rejected Applications & Authors */}
+          {application.status === "REJECTED" && (
             <>
               {isSelfApplication ? (
                 <span className="text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
@@ -707,10 +741,10 @@ export function AdminApplicationCard({
                 </span>
               ) : (
                 <Button
-                  id={`restore-rejected-btn-${application._id}`}
+                  id={`reactivate-btn-${application._id}`}
                   size="sm"
                   disabled={isPending}
-                  onClick={() => setShowRestoreDialog(true)}
+                  onClick={() => setShowReactivateDialog(true)}
                   className="bg-emerald-600 text-white hover:bg-emerald-700 font-[family-name:var(--font-bengali)]"
                 >
                   {isPending ? (
@@ -718,7 +752,7 @@ export function AdminApplicationCard({
                   ) : (
                     <RotateCcw className="size-3.5 mr-1" />
                   )}
-                  পুনরুদ্ধার
+                  আবার সক্রিয় করুন
                 </Button>
               )}
             </>
@@ -936,6 +970,63 @@ export function AdminApplicationCard({
               >
                 {isPending && <Loader2 className="size-3.5 animate-spin mr-1" />}
                 পুনরুদ্ধার সম্পন্ন করুন
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reactivate Author / Application Confirmation Dialog */}
+      {showReactivateDialog && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+        >
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
+            <h3 className="text-base font-semibold text-foreground font-[family-name:var(--font-bengali)]">
+              আবেদন আবার সক্রিয় করুন
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground font-[family-name:var(--font-bengali)]">
+              আপনি কি নিশ্চিত যে <strong>&quot;{currentDisplayName}&quot;</strong>-এর
+              প্রত্যাখ্যাত আবেদনটি আবার সক্রিয় করতে চান?
+            </p>
+            <div className="mt-3 space-y-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-800 dark:text-emerald-300 font-[family-name:var(--font-bengali)]">
+              {!application.authorId && !application.isAuthorRejected ? (
+                <>
+                  <p>✓ আবেদনটি আবার পর্যালোচনাধীন (PENDING) অবস্থায় ফিরে আসবে।</p>
+                  <p>✓ অ্যাডমিন পরবর্তীতে এটি পর্যালোচনা করে অনুমোদন বা প্রত্যাখ্যান করতে পারবেন।</p>
+                </>
+              ) : (
+                <>
+                  <p>✓ লেখকের স্ট্যাটাস পুনরায় সক্রিয় (ACTIVE) অবস্থায় ফিরে আসবে।</p>
+                  {!application.isOrphaned && (
+                    <p>✓ সংশ্লিষ্ট ব্যবহারকারীর ভূমিকা পুনরায় &quot;AUTHOR&quot;-এ উন্নীত হবে।</p>
+                  )}
+                  <p>✓ লেখক প্রোফাইল ও বইসমূহ পুনরায় পাবলিক লিস্টিংয়ে দৃশ্যমান হবে।</p>
+                </>
+              )}
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isPending}
+                onClick={() => setShowReactivateDialog(false)}
+                className="font-[family-name:var(--font-bengali)]"
+              >
+                বাতিল
+              </Button>
+              <Button
+                id={`confirm-reactivate-btn-${application._id}`}
+                size="sm"
+                disabled={isPending}
+                onClick={handleReactivate}
+                className="bg-emerald-600 text-white hover:bg-emerald-700 font-[family-name:var(--font-bengali)]"
+              >
+                {isPending && <Loader2 className="size-3.5 animate-spin mr-1" />}
+                হ্যাঁ, আবার সক্রিয় করুন
               </Button>
             </div>
           </div>

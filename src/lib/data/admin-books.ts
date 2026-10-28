@@ -8,6 +8,7 @@ import type { BookFormData } from "@/types/author";
 
 export interface AdminBookCounts {
   all: number;
+  pendingReview: number;
   published: number;
   draft: number;
   archived: number;
@@ -83,8 +84,9 @@ export async function getAdminBookCounts(): Promise<AdminBookCounts> {
   await requireAdmin();
   await dbConnect();
 
-  const [all, published, draft, archived] = await Promise.all([
+  const [all, pendingReview, published, draft, archived] = await Promise.all([
     Book.countDocuments({}),
+    Book.countDocuments({ status: "PENDING_REVIEW" }),
     Book.countDocuments({ status: "PUBLISHED" }),
     Book.countDocuments({ status: "DRAFT" }),
     Book.countDocuments({ status: "ARCHIVED" }),
@@ -92,6 +94,7 @@ export async function getAdminBookCounts(): Promise<AdminBookCounts> {
 
   return {
     all,
+    pendingReview,
     published,
     draft,
     archived,
@@ -127,6 +130,7 @@ export async function getAdminBooks(
   const statusUpper = params.status?.toUpperCase();
   if (
     statusUpper === "PUBLISHED" ||
+    statusUpper === "PENDING_REVIEW" ||
     statusUpper === "DRAFT" ||
     statusUpper === "ARCHIVED"
   ) {
@@ -302,6 +306,12 @@ export async function getAdminBookForEdit(
 
   return {
     _id: String(book._id),
+    updatedAt:
+      book.updatedAt instanceof Date
+        ? book.updatedAt.toISOString()
+        : book.updatedAt
+        ? String(book.updatedAt)
+        : undefined,
     title: book.title,
     slug: book.slug,
     coverImage: book.coverImage ?? null,
@@ -345,10 +355,14 @@ export async function getAdminPublishedBooksForReorder(): Promise<AdminBookItem[
   await dbConnect();
 
   // Ensure legacy documents without displayOrder default to 10000 so they don't precede numbers
-  await Book.updateMany(
-    { $or: [{ displayOrder: { $exists: false } }, { displayOrder: null }] },
-    { $set: { displayOrder: 10000 } }
-  );
+  try {
+    await Book.updateMany(
+      { $or: [{ displayOrder: { $exists: false } }, { displayOrder: null }] },
+      { $set: { displayOrder: 10000 } }
+    );
+  } catch (err) {
+    console.error("Failed to update legacy displayOrder in admin-books:", err);
+  }
 
   void Author;
   void Category;

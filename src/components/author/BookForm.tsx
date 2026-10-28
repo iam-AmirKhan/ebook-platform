@@ -9,7 +9,10 @@
  */
 
 import { useActionState, useEffect, useRef, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
 import { generateSlug, countSubstantiveChapters } from "@/validators/book";
 import type { ActionResult, BookFormData, CategoryOption, ChapterFormData } from "@/types/author";
 import { BookCoverImage } from "@/components/books/BookCoverImage";
@@ -75,13 +78,21 @@ export function BookForm({
   categories,
   justCreated,
 }: BookFormProps) {
+  const router = useRouter();
   const initialState: ActionResult = { success: false };
   const [state, formAction, isPending] = useActionState(action, initialState);
+  const [savingAction, setSavingAction] = useState<"chapter" | "draft" | "submit" | "save" | null>(null);
+  const [savingChapterKey, setSavingChapterKey] = useState<string | null>(null);
+  const prevStateRef = useRef(state);
 
   // ── Title / slug linkage ───────────────────────────────────────────────
   const [title, setTitle] = useState(defaultValues?.title ?? "");
   const [slug, setSlug] = useState(defaultValues?.slug ?? "");
   const [slugEdited, setSlugEdited] = useState(!!defaultValues?.slug);
+  const [categoryId, setCategoryId] = useState(defaultValues?.categoryId ?? "");
+  const [language, setLanguage] = useState(defaultValues?.language ?? "বাংলা");
+  const [summary, setSummary] = useState(defaultValues?.summary ?? "");
+  const [description, setDescription] = useState(defaultValues?.description ?? "");
 
   // ── Pricing state & client-side validation ──────────────────────────────
   const [price, setPrice] = useState<string>(() => {
@@ -142,54 +153,110 @@ export function BookForm({
   const [manualCoverUrl, setManualCoverUrl] = useState(defaultValues?.coverImage ?? "");
   const [removeCover, setRemoveCover] = useState(false);
   const [coverClientError, setCoverClientError] = useState<string | null>(null);
+  const [coverModified, setCoverModified] = useState(false);
   const [showUrlOption, setShowUrlOption] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const objectUrlRef = useRef<string | null>(null);
 
-  // Clean up object URL when component unmounts or file changes
+  // Synchronize state with incoming props during render
+  const [prevDefaultCover, setPrevDefaultCover] = useState(defaultValues?.coverImage);
+  if (defaultValues?.coverImage !== prevDefaultCover) {
+    setPrevDefaultCover(defaultValues?.coverImage);
+    setManualCoverUrl(defaultValues?.coverImage ?? "");
+  }
+
+  const [prevActionState, setPrevActionState] = useState(state);
+  if (state !== prevActionState) {
+    setPrevActionState(state);
+    setCoverModified(false);
+    if (state.success && state.coverUrl !== undefined) {
+      setManualCoverUrl(state.coverUrl ?? "");
+      setRemoveCover(false);
+      setSelectedCoverFile(null);
+      setCoverPreviewUrl(null);
+    }
+  }
+
+  // Active cover error: suppress previous server error once author changes cover
+  const activeServerCoverError = !coverModified ? state.fieldErrors?.coverImage?.[0] : null;
+
+  // Active general error: suppress previous general error once author modifies the cover
+  const displayGeneralError =
+    !coverModified || !state.fieldErrors?.coverImage ? state.error : null;
+
+  // Clean up object URL when component unmounts
   useEffect(() => {
     return () => {
-      if (coverPreviewUrl && coverPreviewUrl.startsWith("blob:")) {
-        URL.revokeObjectURL(coverPreviewUrl);
+      if (objectUrlRef.current && objectUrlRef.current.startsWith("blob:")) {
+        URL.revokeObjectURL(objectUrlRef.current);
       }
     };
-  }, [coverPreviewUrl]);
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setCoverClientError(null);
+    setCoverModified(true);
+
     const file = e.target.files?.[0];
     if (!file) return;
 
     // Client-side validations
     const MAX_SIZE = 5 * 1024 * 1024; // 5MB
     if (file.size > MAX_SIZE) {
-      setCoverClientError("কভার ছবির আকার সর্বোচ্চ ৫ মেগাবাইট (5MB) হতে পারে।");
+      setCoverClientError("কভার ছবির সাইজ সর্বোচ্চ ৫ মেগাবাইট (5MB) হতে পারে।");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
-    const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      setCoverClientError("শুধুমাত্র JPEG, PNG এবং WebP ছবি আপলোড করা যাবে।");
+    const normalizedType = (file.type || "").split(";")[0].trim().toLowerCase();
+    const ALLOWED_MIME_TYPES = [
+      "image/jpeg",
+      "image/jpg",
+      "image/pjpeg",
+      "image/png",
+      "image/x-png",
+      "image/webp",
+      "image/x-webp",
+    ];
+
+    const extMatch = file.name.match(/\.([a-z0-9]+)$/i);
+    const ext = extMatch ? extMatch[1].toLowerCase() : "";
+    const ALLOWED_EXTENSIONS = ["jpg", "jpeg", "png", "webp"];
+
+    const isMimeAllowed = ALLOWED_MIME_TYPES.includes(normalizedType);
+    const isExtAllowed = ALLOWED_EXTENSIONS.includes(ext);
+
+    const isExplicitlyForbiddenMime =
+      Boolean(normalizedType) &&
+      !normalizedType.startsWith("image/") &&
+      normalizedType !== "application/octet-stream";
+
+    if (isExplicitlyForbiddenMime || (!isMimeAllowed && !isExtAllowed)) {
+      setCoverClientError("শুধুমাত্র JPEG, PNG অথবা WebP ফরম্যাটের ছবি গ্রহণযোগ্য।");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
-    if (coverPreviewUrl && coverPreviewUrl.startsWith("blob:")) {
-      URL.revokeObjectURL(coverPreviewUrl);
+    if (objectUrlRef.current && objectUrlRef.current.startsWith("blob:")) {
+      URL.revokeObjectURL(objectUrlRef.current);
     }
 
+    const newUrl = URL.createObjectURL(file);
+    objectUrlRef.current = newUrl;
     setSelectedCoverFile(file);
-    setCoverPreviewUrl(URL.createObjectURL(file));
+    setCoverPreviewUrl(newUrl);
     setRemoveCover(false);
   };
 
   const handleClearSelectedFile = () => {
-    if (coverPreviewUrl && coverPreviewUrl.startsWith("blob:")) {
-      URL.revokeObjectURL(coverPreviewUrl);
+    if (objectUrlRef.current && objectUrlRef.current.startsWith("blob:")) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
     }
     setSelectedCoverFile(null);
     setCoverPreviewUrl(null);
     setCoverClientError(null);
+    setCoverModified(true);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -197,11 +264,15 @@ export function BookForm({
     handleClearSelectedFile();
     setRemoveCover(true);
     setManualCoverUrl("");
+    setCoverClientError(null);
+    setCoverModified(true);
   };
 
   const handleRestoreExistingCover = () => {
     setRemoveCover(false);
     setManualCoverUrl(defaultValues?.coverImage ?? "");
+    setCoverClientError(null);
+    setCoverModified(true);
   };
 
   const currentCoverDisplay = removeCover
@@ -269,25 +340,246 @@ export function BookForm({
     );
   };
 
-  // ── Form ref for hidden JSON fields ───────────────────────────────────
-  const formRef = useRef<HTMLFormElement>(null);
+  // ── Unsaved draft persistence & recovery ────────────────────────────────
+  const draftStorageKey = defaultValues?._id
+    ? `pustoka_book_draft_${defaultValues._id}`
+    : "pustoka_book_draft_new";
 
-  // ── Success redirect feedback ─────────────────────────────────────────
-  const [successMsg, setSuccessMsg] = useState(
-    justCreated ? "বই সফলভাবে তৈরি হয়েছে! এখন সম্পাদনা করুন।" : ""
-  );
+  const [hasRecoveredDraft, setHasRecoveredDraft] = useState(false);
+  const isAutoSavingRef = useRef(false);
 
   useEffect(() => {
-    if (state.success) {
-      // Schedule in a timeout to avoid synchronous setState within effect
-      const t1 = setTimeout(() => setSuccessMsg("পরিবর্তন সংরক্ষিত হয়েছে।"), 0);
-      const t2 = setTimeout(() => setSuccessMsg(""), 4000);
-      return () => {
-        clearTimeout(t1);
-        clearTimeout(t2);
-      };
+    try {
+      const stored = localStorage.getItem(draftStorageKey);
+      if (!stored) return;
+      const parsed = JSON.parse(stored);
+      if (!parsed || parsed.version !== 1) return;
+
+      if (defaultValues?.updatedAt) {
+        const serverTime = new Date(defaultValues.updatedAt).getTime();
+        if (serverTime > parsed.savedAt) {
+          localStorage.removeItem(draftStorageKey);
+          return;
+        }
+      }
+
+      const hasMeaningfulData =
+        parsed.title ||
+        parsed.description ||
+        parsed.summary ||
+        (parsed.chapters && parsed.chapters.length > 0);
+
+      if (hasMeaningfulData) {
+        setTimeout(() => {
+          if (parsed.title !== undefined) setTitle(parsed.title);
+          if (parsed.slug !== undefined) setSlug(parsed.slug);
+          if (parsed.categoryId !== undefined) setCategoryId(parsed.categoryId);
+          if (parsed.language !== undefined) setLanguage(parsed.language);
+          if (parsed.summary !== undefined) setSummary(parsed.summary);
+          if (parsed.description !== undefined) setDescription(parsed.description);
+          if (parsed.outcomes !== undefined) setOutcomes(parsed.outcomes);
+          if (parsed.price !== undefined) setPrice(parsed.price);
+          if (parsed.discountPrice !== undefined) setDiscountPrice(parsed.discountPrice);
+          if (parsed.chapters && Array.isArray(parsed.chapters) && parsed.chapters.length > 0) {
+            setChapters(parsed.chapters.map((ch: ChapterFormData) => ({ ...ch, _key: makeKey() })));
+          }
+          setHasRecoveredDraft(true);
+        }, 0);
+      }
+    } catch {
+      // storage error fallback
     }
-  }, [state]);
+  }, [draftStorageKey, defaultValues]);
+
+  const handleDiscardRecoveredDraft = () => {
+    try {
+      localStorage.removeItem(draftStorageKey);
+    } catch {}
+    setHasRecoveredDraft(false);
+    setTitle(defaultValues?.title ?? "");
+    setSlug(defaultValues?.slug ?? "");
+    setSlugEdited(!!defaultValues?.slug);
+    setCategoryId(defaultValues?.categoryId ?? "");
+    setLanguage(defaultValues?.language ?? "বাংলা");
+    setSummary(defaultValues?.summary ?? "");
+    setDescription(defaultValues?.description ?? "");
+    setOutcomes(defaultValues?.learningOutcomes ?? []);
+    setPrice(
+      defaultValues?.price !== undefined && defaultValues?.price !== null
+        ? String(defaultValues.price)
+        : "100"
+    );
+    setDiscountPrice(
+      defaultValues?.discountPrice !== undefined && defaultValues?.discountPrice !== null
+        ? String(defaultValues.discountPrice)
+        : ""
+    );
+    setChapters(
+      (defaultValues?.chapters ?? []).map((ch) => ({ ...ch, _key: makeKey() }))
+    );
+    setExpandedChapter(null);
+    toast.info("অসংরক্ষিত খসড়া মুছে ফেলা হয়েছে");
+  };
+
+  useEffect(() => {
+    if (!isAutoSavingRef.current) {
+      isAutoSavingRef.current = true;
+      return;
+    }
+    const timer = setTimeout(() => {
+      try {
+        const dataToSave = {
+          version: 1,
+          savedAt: Date.now(),
+          title,
+          slug,
+          categoryId,
+          language,
+          summary,
+          description,
+          outcomes,
+          price,
+          discountPrice,
+          chapters: chapters.map((ch) => ({
+            order: ch.order,
+            title: ch.title,
+            teaser: ch.teaser,
+            content: ch.content,
+            isPreview: ch.isPreview,
+          })),
+        };
+        localStorage.setItem(draftStorageKey, JSON.stringify(dataToSave));
+      } catch {
+        // quota or privacy mode error
+      }
+    }, 750);
+    return () => clearTimeout(timer);
+  }, [
+    title,
+    slug,
+    categoryId,
+    language,
+    summary,
+    description,
+    outcomes,
+    price,
+    discountPrice,
+    chapters,
+    draftStorageKey,
+  ]);
+
+  // ── Form ref for hidden JSON fields ───────────────────────────────────
+  const formRef = useRef<HTMLFormElement>(null);
+  const draftSubmitRef = useRef<HTMLButtonElement>(null);
+
+  const handleSaveDraft = () => {
+    setSavingAction("draft");
+    setSavingChapterKey(null);
+    if (draftSubmitRef.current) {
+      draftSubmitRef.current.click();
+    } else if (formRef.current) {
+      const submitter = formRef.current.querySelector<HTMLButtonElement>(
+        'button[type="submit"][name="actionIntent"][value="draft"]'
+      );
+      submitter?.click();
+    }
+  };
+
+  const handleSaveChapter = (chapterKey: string) => {
+    setSavingAction("chapter");
+    setSavingChapterKey(chapterKey);
+    if (draftSubmitRef.current) {
+      draftSubmitRef.current.click();
+    } else if (formRef.current) {
+      const submitter = formRef.current.querySelector<HTMLButtonElement>(
+        'button[type="submit"][name="actionIntent"][value="draft"]'
+      );
+      submitter?.click();
+    }
+  };
+
+  // ── Success & Toast feedback ──────────────────────────────────────────
+  const [successMsg, setSuccessMsg] = useState("");
+  const justCreatedToastRef = useRef(false);
+
+  useEffect(() => {
+    if (justCreated && !justCreatedToastRef.current) {
+      justCreatedToastRef.current = true;
+      toast.success("বই সফলভাবে তৈরি হয়েছে! এখন অধ্যায় ও প্রয়োজনীয় তথ্য যোগ করুন।");
+    }
+  }, [justCreated]);
+
+  useEffect(() => {
+    if (state !== prevStateRef.current) {
+      prevStateRef.current = state;
+
+      if (state.success) {
+        if (objectUrlRef.current && objectUrlRef.current.startsWith("blob:")) {
+          URL.revokeObjectURL(objectUrlRef.current);
+          objectUrlRef.current = null;
+        }
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+
+        try {
+          localStorage.removeItem(draftStorageKey);
+        } catch {}
+
+        let bannerMsg = state.message || "পরিবর্তন সংরক্ষিত হয়েছে।";
+        if (savingAction === "chapter") {
+          bannerMsg = "অধ্যায় সংরক্ষিত হয়েছে।";
+          toast.success("অধ্যায় সংরক্ষিত হয়েছে");
+        } else if (savingAction === "draft") {
+          bannerMsg = "খসড়া সংরক্ষিত হয়েছে।";
+          toast.success("খসড়া সংরক্ষিত হয়েছে");
+        } else if (savingAction === "submit") {
+          bannerMsg = "বইটি রিভিউয়ের জন্য জমা দেওয়া হয়েছে।";
+          toast.success("বইটি রিভিউয়ের জন্য জমা দেওয়া হয়েছে");
+          router.push("/author?tab=books&submitted=1");
+        } else if (savingAction === "save") {
+          bannerMsg = "বইয়ের তথ্য সংরক্ষিত হয়েছে।";
+          toast.success("বইয়ের তথ্য সংরক্ষিত হয়েছে");
+        } else {
+          toast.success(bannerMsg);
+        }
+
+        const msgToSet = bannerMsg;
+        const actionType = savingAction;
+        const timerA = setTimeout(() => {
+          setSuccessMsg(msgToSet);
+          setSavingAction(null);
+          setSavingChapterKey(null);
+          setHasRecoveredDraft(false);
+          if (actionType === "chapter") {
+            setExpandedChapter(null);
+          }
+        }, 0);
+
+        const timerB = setTimeout(() => {
+          setSuccessMsg("");
+        }, 4000);
+
+        return () => {
+          clearTimeout(timerA);
+          clearTimeout(timerB);
+        };
+      } else if (state.error) {
+        if (savingAction === "chapter") {
+          toast.error(state.error || "অধ্যায় সংরক্ষণ করা যায়নি। আবার চেষ্টা করুন।");
+        } else if (savingAction === "submit") {
+          toast.error(state.error || "রিভিউয়ের জন্য জমা দিতে সমস্যা হয়েছে। আবার চেষ্টা করুন।");
+        } else {
+          toast.error(state.error || "সংরক্ষণ করা যায়নি। আবার চেষ্টা করুন।");
+        }
+        const timerErr = setTimeout(() => {
+          setSavingAction(null);
+          setSavingChapterKey(null);
+        }, 0);
+        return () => clearTimeout(timerErr);
+      }
+    }
+  }, [state, savingAction, router, draftStorageKey]);
 
   // ── Error scroll/focus feedback ──────────────────────────────────────
   const errorRef = useRef<HTMLDivElement>(null);
@@ -308,6 +600,19 @@ export function BookForm({
       const targetEl = document.getElementById(firstInvalidId);
       targetEl?.scrollIntoView({ behavior: "smooth", block: "center" });
       targetEl?.focus();
+      return;
+    }
+
+    const submitter = (e.nativeEvent as SubmitEvent)?.submitter as HTMLButtonElement | null;
+    if (submitter) {
+      const intent = submitter.value;
+      if (savingAction !== "chapter") {
+        if (intent === "submit") setSavingAction("submit");
+        else if (intent === "draft") setSavingAction("draft");
+        else if (intent === "save") setSavingAction("save");
+      }
+    } else if (!savingAction) {
+      setSavingAction(defaultValues?.status === "PUBLISHED" ? "save" : "draft");
     }
   };
 
@@ -316,7 +621,6 @@ export function BookForm({
       ref={formRef}
       action={formAction}
       onSubmit={handleFormSubmit}
-      encType="multipart/form-data"
       className="flex flex-col gap-8"
       noValidate
     >
@@ -336,6 +640,23 @@ export function BookForm({
       />
 
       {/* ── Status feedback ── */}
+      {hasRecoveredDraft && (
+        <div
+          role="status"
+          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-800 dark:text-amber-300 font-[family-name:var(--font-bengali)]"
+        >
+          <div className="flex items-center gap-2">
+            <span>⚠️ আপনার সংরক্ষিত না হওয়া পূর্বের খসড়া তথ্য স্বয়ংক্রিয়ভাবে উদ্ধার করা হয়েছে।</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleDiscardRecoveredDraft}
+            className="self-start sm:self-center rounded-md border border-amber-500/40 bg-card px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
+          >
+            খসড়া মুছে ফেলুন
+          </button>
+        </div>
+      )}
       {successMsg && (
         <div
           role="status"
@@ -345,14 +666,14 @@ export function BookForm({
           {successMsg}
         </div>
       )}
-      {state.error && (
+      {displayGeneralError && (
         <div
           ref={errorRef}
           tabIndex={-1}
           role="alert"
           className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive font-[family-name:var(--font-bengali)] outline-none focus:ring-2 focus:ring-destructive/40"
         >
-          {state.error}
+          {displayGeneralError}
         </div>
       )}
 
@@ -430,7 +751,8 @@ export function BookForm({
             id="categoryId"
             name="categoryId"
             required
-            defaultValue={defaultValues?.categoryId ?? ""}
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
             className={`${inputClass} font-[family-name:var(--font-bengali)]`}
           >
             <option value="">— বিভাগ নির্বাচন করুন —</option>
@@ -456,7 +778,8 @@ export function BookForm({
             id="language"
             name="language"
             type="text"
-            defaultValue={defaultValues?.language ?? "বাংলা"}
+            value={language}
+            onChange={(e) => setLanguage(e.target.value)}
             className={`${inputClass} font-[family-name:var(--font-bengali)]`}
             placeholder="বাংলা"
           />
@@ -471,6 +794,7 @@ export function BookForm({
             {/* Visual Preview */}
             <div className="w-28 sm:w-32 flex-shrink-0 shadow-md rounded-lg overflow-hidden border border-border bg-card">
               <BookCoverImage
+                key={currentCoverDisplay ?? "empty-cover"}
                 src={currentCoverDisplay}
                 title={title || "কভার প্রিভিউ"}
                 aspectRatio="aspect-[2/3]"
@@ -489,7 +813,7 @@ export function BookForm({
                 id="coverFile"
                 name="coverFile"
                 type="file"
-                accept="image/jpeg,image/png,image/webp"
+                accept="image/jpeg,image/png,image/webp,image/jpg,image/pjpeg,.jpg,.jpeg,.png,.webp"
                 onChange={handleFileChange}
                 className="hidden"
                 aria-label="কভার ছবি নির্বাচন করুন"
@@ -575,17 +899,10 @@ export function BookForm({
                 </p>
               )}
 
-              {/* Client error */}
-              {coverClientError && (
+              {/* Cover validation error (client or server) */}
+              {(coverClientError || activeServerCoverError) && (
                 <p className="text-xs text-destructive font-[family-name:var(--font-bengali)]">
-                  {coverClientError}
-                </p>
-              )}
-
-              {/* Server error */}
-              {state.fieldErrors?.coverImage && (
-                <p className="text-xs text-destructive font-[family-name:var(--font-bengali)]">
-                  {state.fieldErrors.coverImage[0]}
+                  {coverClientError || activeServerCoverError}
                 </p>
               )}
 
@@ -654,7 +971,8 @@ export function BookForm({
           <textarea
             id="summary"
             name="summary"
-            defaultValue={defaultValues?.summary ?? ""}
+            value={summary}
+            onChange={(e) => setSummary(e.target.value)}
             className={bengaliTextareaClass}
             placeholder="বইয়ের সংক্ষিপ্ত পরিচিতি লিখুন"
             maxLength={500}
@@ -669,7 +987,8 @@ export function BookForm({
           <textarea
             id="description"
             name="description"
-            defaultValue={defaultValues?.description ?? ""}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
             className={`${bengaliTextareaClass} min-h-[200px]`}
             placeholder="বইটি সম্পর্কে বিস্তারিত লিখুন"
             aria-describedby={state.fieldErrors?.description ? "description-error" : undefined}
@@ -836,9 +1155,8 @@ export function BookForm({
           </div>
           <div className="flex items-center gap-2">
             <Button
-              type="submit"
-              name="actionIntent"
-              value="draft"
+              type="button"
+              onClick={handleSaveDraft}
               disabled={isPending}
               variant="outline"
               size="sm"
@@ -876,6 +1194,7 @@ export function BookForm({
               index={idx}
               total={chapters.length}
               isPending={isPending}
+              isSavingThisChapter={isPending && savingAction === "chapter" && savingChapterKey === ch._key}
               isExpanded={expandedChapter === ch._key}
               onToggle={() =>
                 setExpandedChapter((prev) =>
@@ -885,6 +1204,8 @@ export function BookForm({
               onChange={(field, value) => updateChapter(ch._key, field, value)}
               onRemove={() => removeChapter(ch._key)}
               onMove={(dir) => moveChapter(ch._key, dir)}
+              onSaveChapter={() => handleSaveChapter(ch._key)}
+              onSaveDraft={handleSaveDraft}
             />
           ))}
         </ol>
@@ -897,12 +1218,12 @@ export function BookForm({
       </section>
 
       {/* ── Submit buttons ── */}
-      {state.error && (
+      {displayGeneralError && (
         <div
           aria-hidden="true"
           className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive font-[family-name:var(--font-bengali)]"
         >
-          {state.error}
+          {displayGeneralError}
         </div>
       )}
 
@@ -913,20 +1234,37 @@ export function BookForm({
               type="submit"
               name="actionIntent"
               value="save"
+              onClick={() => setSavingAction("save")}
               disabled={isPending}
               className="font-[family-name:var(--font-bengali)] cursor-pointer"
             >
-              {isPending ? "সংরক্ষণ হচ্ছে…" : "পরিবর্তন সংরক্ষণ করুন"}
+              {isPending && savingAction === "save" ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                  সংরক্ষণ হচ্ছে…
+                </>
+              ) : (
+                "পরিবর্তন সংরক্ষণ করুন"
+              )}
             </Button>
             <Button
+              ref={draftSubmitRef}
               type="submit"
               name="actionIntent"
               value="draft"
+              onClick={() => setSavingAction("draft")}
               disabled={isPending}
               variant="outline"
               className="font-[family-name:var(--font-bengali)] cursor-pointer"
             >
-              {isPending ? "সংরক্ষণ হচ্ছে…" : "ড্রাফট সংরক্ষণ করুন"}
+              {isPending && savingAction === "draft" ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                  সংরক্ষণ হচ্ছে…
+                </>
+              ) : (
+                "ড্রাফট সংরক্ষণ করুন"
+              )}
             </Button>
             <p className="text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
               &ldquo;ড্রাফট সংরক্ষণ করুন&rdquo; চাপলে বইটি ড্রাফট তালিকায় স্থানান্তরিত হবে।
@@ -935,26 +1273,43 @@ export function BookForm({
         ) : (
           <>
             <Button
+              ref={draftSubmitRef}
               type="submit"
               name="actionIntent"
               value="draft"
+              onClick={() => setSavingAction("draft")}
               disabled={isPending}
+              variant="outline"
               className="font-[family-name:var(--font-bengali)] cursor-pointer"
             >
-              {isPending ? "সংরক্ষণ হচ্ছে…" : "ড্রাফট সংরক্ষণ করুন"}
+              {isPending && savingAction === "draft" ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                  সংরক্ষণ হচ্ছে…
+                </>
+              ) : (
+                "ড্রাফট সংরক্ষণ করুন"
+              )}
             </Button>
             <Button
               type="submit"
               name="actionIntent"
-              value="publish"
+              value="submit"
+              onClick={() => setSavingAction("submit")}
               disabled={isPending}
-              variant="outline"
-              className="font-[family-name:var(--font-bengali)] border-brand/40 text-brand hover:bg-brand/10 cursor-pointer"
+              className="font-[family-name:var(--font-bengali)] bg-brand text-brand-foreground hover:bg-brand/90 cursor-pointer"
             >
-              {isPending ? "প্রকাশ হচ্ছে…" : "প্রকাশ করুন"}
+              {isPending && savingAction === "submit" ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                  জমা হচ্ছে…
+                </>
+              ) : (
+                "রিভিউয়ের জন্য জমা দিন"
+              )}
             </Button>
             <p className="text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
-              বইটি ড্রাফট রাখতে &ldquo;ড্রাফট সংরক্ষণ করুন&rdquo; অথবা সরাসরি প্রকাশ করতে &ldquo;প্রকাশ করুন&rdquo; নির্বাচন করুন।
+              বইটি ড্রাফট রাখতে &ldquo;ড্রাফট সংরক্ষণ করুন&rdquo; অথবা অ্যাডমিন অনুমোদনের জন্য পাঠাতে &ldquo;রিভিউয়ের জন্য জমা দিন&rdquo; নির্বাচন করুন।
             </p>
           </>
         )}
@@ -973,10 +1328,13 @@ interface ChapterEditorProps {
   total: number;
   isExpanded: boolean;
   isPending?: boolean;
+  isSavingThisChapter?: boolean;
   onToggle: () => void;
   onChange: (field: keyof ChapterFormData, value: string | boolean | number) => void;
   onRemove: () => void;
   onMove: (dir: "up" | "down") => void;
+  onSaveChapter?: () => void;
+  onSaveDraft?: () => void;
 }
 
 function ChapterEditor({
@@ -985,10 +1343,13 @@ function ChapterEditor({
   total,
   isExpanded,
   isPending,
+  isSavingThisChapter,
   onToggle,
   onChange,
   onRemove,
   onMove,
+  onSaveChapter,
+  onSaveDraft,
 }: ChapterEditorProps) {
   const inputClass =
     "flex w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-50";
@@ -1009,7 +1370,14 @@ function ChapterEditor({
           className="flex-1 min-w-0 text-left text-sm font-medium text-foreground font-[family-name:var(--font-bengali)] truncate hover:text-brand transition-colors"
           aria-expanded={isExpanded}
         >
-          {chapter.title || <span className="text-muted-foreground italic">শিরোনাম নেই</span>}
+          <span>
+            {chapter.title || <span className="text-muted-foreground italic">শিরোনাম নেই</span>}
+          </span>
+          {chapter.content ? (
+            <span className="hidden sm:inline-block ml-2 text-[11px] font-normal text-muted-foreground font-mono">
+              ({chapter.content.trim().length} অক্ষর)
+            </span>
+          ) : null}
         </button>
 
         {/* Preview badge */}
@@ -1122,14 +1490,20 @@ function ChapterEditor({
           {/* Chapter Draft Save Action */}
           <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-border/40">
             <Button
-              type="submit"
-              name="actionIntent"
-              value="draft"
+              type="button"
+              onClick={onSaveChapter || onSaveDraft}
               disabled={isPending}
               size="sm"
               className="font-[family-name:var(--font-bengali)] gap-1.5 cursor-pointer"
             >
-              {isPending ? "সংরক্ষণ হচ্ছে…" : "অধ্যায় সংরক্ষণ করুন"}
+              {isSavingThisChapter ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" />
+                  অধ্যায় সংরক্ষণ হচ্ছে…
+                </>
+              ) : (
+                "অধ্যায় সংরক্ষণ করুন"
+              )}
             </Button>
             <span className="text-xs text-muted-foreground font-[family-name:var(--font-bengali)]">
               অধ্যায়টি ড্রাফট হিসেবে সংরক্ষিত থাকবে।

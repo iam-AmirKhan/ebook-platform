@@ -54,38 +54,54 @@ export async function getAuthorBooks(
 ): Promise<AuthorBookListItem[]> {
   await dbConnect();
 
-  // Register Category model for population
-  await import("@/models/Category");
+  if (!authorId || !Types.ObjectId.isValid(authorId)) {
+    return [];
+  }
 
-  const books = await Book.find({ author: authorId })
-    .sort({ updatedAt: -1 })
-    .populate<{ category: { name: string; slug: string } | null }>(
-      "category",
-      "name slug"
-    )
-    .select(
-      "title slug coverImage status price currency updatedAt createdAt"
-    )
-    .lean();
+  // Ensure Category model is registered in Mongoose runtime
+  void Category;
 
-  return books.map((b) => ({
-    _id: String(b._id),
-    title: b.title,
-    slug: b.slug,
-    coverImage: b.coverImage ?? null,
-    status: b.status as "DRAFT" | "PUBLISHED" | "ARCHIVED",
-    price: b.price,
-    currency: b.currency,
-    categoryName: (b.category as { name: string } | null)?.name ?? "অশ্রেণীবদ্ধ",
-    updatedAt:
-      b.updatedAt instanceof Date
-        ? b.updatedAt.toISOString()
-        : String(b.updatedAt),
-    createdAt:
-      b.createdAt instanceof Date
-        ? b.createdAt.toISOString()
-        : String(b.createdAt),
-  }));
+  try {
+    const aId = new Types.ObjectId(authorId);
+
+    const books = await Book.find({ author: aId })
+      .sort({ updatedAt: -1 })
+      .populate<{ category: { name?: string; slug?: string } | null }>(
+        "category",
+        "name slug"
+      )
+      .select(
+        "title slug coverImage status price currency updatedAt createdAt category"
+      )
+      .lean();
+
+    return books.map((b) => ({
+      _id: String(b._id),
+      title: b.title || "শিরোনামহীন বই",
+      slug: b.slug || "",
+      coverImage: b.coverImage ?? null,
+      status: (b.status as "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "ARCHIVED") || "DRAFT",
+      price: typeof b.price === "number" ? b.price : 0,
+      currency: b.currency || "BDT",
+      categoryName:
+        (b.category as { name?: string } | null)?.name ?? "অশ্রেণীবদ্ধ",
+      updatedAt:
+        b.updatedAt instanceof Date
+          ? b.updatedAt.toISOString()
+          : b.updatedAt
+          ? String(b.updatedAt)
+          : new Date().toISOString(),
+      createdAt:
+        b.createdAt instanceof Date
+          ? b.createdAt.toISOString()
+          : b.createdAt
+          ? String(b.createdAt)
+          : new Date().toISOString(),
+    }));
+  } catch (error) {
+    console.error("Failed to fetch author books for authorId:", authorId, error);
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +123,12 @@ export async function getBookForEdit(
 
   return {
     _id: String(book._id),
+    updatedAt:
+      book.updatedAt instanceof Date
+        ? book.updatedAt.toISOString()
+        : book.updatedAt
+        ? String(book.updatedAt)
+        : undefined,
     title: book.title,
     slug: book.slug,
     coverImage: book.coverImage ?? null,
@@ -117,7 +139,7 @@ export async function getBookForEdit(
     learningOutcomes: book.learningOutcomes ?? [],
     price: book.price,
     discountPrice: book.discountPrice ?? null,
-    status: book.status as "DRAFT" | "PUBLISHED" | "ARCHIVED",
+    status: book.status as "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "ARCHIVED",
     chapters: (book.chapters ?? [])
       .slice()
       .sort((a, b) => a.order - b.order)
@@ -277,7 +299,7 @@ export async function getAuthorBookSales(
       title: b.title,
       slug: b.slug,
       coverImage: b.coverImage ?? null,
-      status: b.status as "DRAFT" | "PUBLISHED" | "ARCHIVED",
+      status: b.status as "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "ARCHIVED",
       price: b.price,
       unitsSold: stats.unitsSold,
       grossSales: stats.grossSales,

@@ -1,6 +1,6 @@
 import mongoose, { Document, Model, Schema, Types } from "mongoose";
 
-export type BookStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
+export type BookStatus = "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "ARCHIVED";
 
 // ---------------------------------------------------------------------------
 // Chapter subdocument
@@ -147,7 +147,7 @@ const BookSchema = new Schema<IBookDocument>(
     },
     status: {
       type: String,
-      enum: ["DRAFT", "PUBLISHED", "ARCHIVED"],
+      enum: ["DRAFT", "PENDING_REVIEW", "PUBLISHED", "ARCHIVED"],
       default: "DRAFT",
       required: true,
     },

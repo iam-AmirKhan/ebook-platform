@@ -47,31 +47,69 @@ function safeRevalidatePath(pathStr: string): void {
   }
 }
 
-function isValidImageBuffer(buffer: Buffer, mimeType: string): boolean {
-  if (mimeType === "image/jpeg") {
-    return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+type AllowedImageMime = "image/jpeg" | "image/png" | "image/webp";
+
+/**
+ * Detect image format from binary magic bytes.
+ * Validates JPEG (SOI), PNG (signature + IHDR), and WebP (RIFF + WEBP + VP8/VP8L/VP8X).
+ */
+function detectImageFormat(buffer: Buffer): {
+  mimeType: AllowedImageMime;
+  extension: "jpg" | "png" | "webp";
+} | null {
+  if (!buffer || buffer.length < 24) {
+    return null;
   }
-  if (mimeType === "image/png") {
-    return (
-      buffer.length >= 8 &&
-      buffer[0] === 0x89 &&
-      buffer[1] === 0x50 &&
-      buffer[2] === 0x4e &&
-      buffer[3] === 0x47 &&
-      buffer[4] === 0x0d &&
-      buffer[5] === 0x0a &&
-      buffer[6] === 0x1a &&
-      buffer[7] === 0x0a
-    );
+
+  // 1. JPEG: SOI marker 0xFF 0xD8 0xFF
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return { mimeType: "image/jpeg", extension: "jpg" };
   }
-  if (mimeType === "image/webp") {
-    return (
-      buffer.length >= 12 &&
-      buffer.toString("ascii", 0, 4) === "RIFF" &&
-      buffer.toString("ascii", 8, 12) === "WEBP"
-    );
+
+  // 2. PNG: 8-byte signature 89 50 4E 47 0D 0A 1A 0A followed by IHDR chunk
+  if (
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    const chunkType = buffer.toString("ascii", 12, 16);
+    if (chunkType === "IHDR") {
+      return { mimeType: "image/png", extension: "png" };
+    }
   }
-  return false;
+
+  // 3. WebP: RIFF [4 bytes size] WEBP [VP8 | VP8L | VP8X]
+  if (
+    buffer.toString("ascii", 0, 4) === "RIFF" &&
+    buffer.toString("ascii", 8, 12) === "WEBP"
+  ) {
+    const chunkType = buffer.toString("ascii", 12, 16);
+    if (chunkType === "VP8 " || chunkType === "VP8L" || chunkType === "VP8X") {
+      return { mimeType: "image/webp", extension: "webp" };
+    }
+  }
+
+  return null;
+}
+
+function isUploadFile(value: unknown): value is File {
+  // A real upload must have actual bytes. An empty File (size=0, name="")
+  // is what browsers send when a file input has no file selected — it must
+  // NOT be treated as a new upload.
+  return (
+    (value instanceof File && value.size > 0) ||
+    (typeof value === "object" &&
+      value !== null &&
+      !(value instanceof File) &&
+      typeof (value as Blob).arrayBuffer === "function" &&
+      typeof (value as File).size === "number" &&
+      (value as File).size > 0)
+  );
 }
 
 export async function handleBookCoverUpload(
@@ -85,7 +123,7 @@ export async function handleBookCoverUpload(
   }
 
   const coverFile = formData.get("coverFile");
-  if (coverFile instanceof File && coverFile.size > 0) {
+  if (isUploadFile(coverFile)) {
     // 1. Max size: 5MB
     const MAX_SIZE = 5 * 1024 * 1024;
     if (coverFile.size > MAX_SIZE) {
@@ -95,31 +133,39 @@ export async function handleBookCoverUpload(
       };
     }
 
-    // 2. MIME type validation
-    const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
-    if (!ALLOWED_TYPES.includes(coverFile.type)) {
+    // 2. Reject explicitly non-image MIME types (e.g. application/pdf, text/plain)
+    const reportedMime = (coverFile.type || "").split(";")[0].trim().toLowerCase();
+    const FORBIDDEN_MIMES = [
+      "application/pdf",
+      "text/plain",
+      "application/x-msdownload",
+      "application/zip",
+      "application/x-rar-compressed",
+    ];
+    if (
+      FORBIDDEN_MIMES.includes(reportedMime) ||
+      reportedMime.startsWith("video/") ||
+      reportedMime.startsWith("audio/")
+    ) {
       return {
         success: false,
         error: "শুধুমাত্র JPEG, PNG অথবা WebP ফরম্যাটের ছবি গ্রহণযোগ্য।",
       };
     }
 
-    // 3. Binary magic bytes validation
+    // 3. Binary magic bytes validation & format detection
     const buffer = Buffer.from(await coverFile.arrayBuffer());
-    if (!isValidImageBuffer(buffer, coverFile.type)) {
+    const detected = detectImageFormat(buffer);
+    if (!detected) {
       return {
         success: false,
-        error: "অবৈধ অথবা করাপ্টেড কভার ইমেজ ফাইল নির্বাচন করা হয়েছে।",
+        error: "শুধুমাত্র JPEG, PNG অথবা WebP ফরম্যাটের ছবি গ্রহণযোগ্য।",
       };
     }
 
+    const { mimeType, extension: ext } = detected;
+
     // 4. Save to MongoDB GridFS durable storage
-    const ext =
-      coverFile.type === "image/png"
-        ? "png"
-        : coverFile.type === "image/webp"
-        ? "webp"
-        : "jpg";
     const safeFileName = `cover-${authorId}-${Date.now()}-${crypto
       .randomBytes(4)
       .toString("hex")}.${ext}`;
@@ -127,7 +173,7 @@ export async function handleBookCoverUpload(
     const gridFsFile = await uploadCoverToGridFS(
       buffer,
       safeFileName,
-      coverFile.type,
+      mimeType,
       { authorId }
     );
 
@@ -169,7 +215,6 @@ class PublicActionError extends Error {
 
 const GENERIC_CREATE_ERROR = "Could not create the book. Please try again.";
 const GENERIC_UPDATE_ERROR = "Could not update the book. Please try again.";
-const GENERIC_PUBLISH_ERROR = "Could not publish the book. Please try again.";
 const GENERIC_UNPUBLISH_ERROR = "Could not unpublish the book. Please try again.";
 const GENERIC_ARCHIVE_ERROR = "Could not archive the book. Please try again.";
 
@@ -350,7 +395,24 @@ export async function createBook(
       return duplicateSlugResult(data.slug);
     }
 
-    // 6. Create the book as DRAFT
+    const actionIntent = String(formData.get("actionIntent") || "").trim().toLowerCase();
+    const isSubmitIntent = actionIntent === "submit" || actionIntent === "publish";
+
+    if (isSubmitIntent) {
+      const publishCheck = BookPublishSchema.safeParse(data);
+      if (!publishCheck.success) {
+        const fieldErrors = publishCheck.error.flatten().fieldErrors as Record<string, string[]>;
+        const firstError = firstFieldError(
+          fieldErrors,
+          "রিভিউয়ের জন্য জমা দেওয়ার আগে প্রয়োজনীয় সকল তথ্য ও কমপক্ষে ৫টি পূর্ণাঙ্গ অধ্যায় পূরণ থাকতে হবে।"
+        );
+        return { success: false, error: firstError, fieldErrors };
+      }
+    }
+
+    const targetStatus: BookStatus = isSubmitIntent ? "PENDING_REVIEW" : "DRAFT";
+
+    // 6. Create the book as DRAFT or PENDING_REVIEW
     const book = await Book.create({
       title: data.title,
       slug: data.slug,
@@ -371,15 +433,21 @@ export async function createBook(
         content: ch.content,
         isPreview: ch.isPreview ?? false,
       })),
-      status: "DRAFT",
+      status: targetStatus,
     });
 
     safeRevalidatePath("/author");
+    safeRevalidatePath("/admin");
+    safeRevalidatePath("/admin/books");
 
     return {
       success: true,
       bookId: String(book._id),
       slug: book.slug,
+      coverUrl: (book.coverImage as string | null) ?? null,
+      message: isSubmitIntent
+        ? "বইটি সফলভাবে রিভিউয়ের জন্য জমা দেওয়া হয়েছে"
+        : "খসড়া সংরক্ষিত হয়েছে",
     };
   } catch (error) {
     console.error("createBook error:", error);
@@ -488,22 +556,36 @@ export async function updateBook(
 
     // 9. Status transition rules
     const isDraftIntent = actionIntent === "draft";
-    const isPublishIntent = actionIntent === "publish";
+    const isSubmitIntent = actionIntent === "submit" || actionIntent === "publish";
+    const isSaveIntent = actionIntent === "save";
 
     let targetStatus: BookStatus = existingBook.status;
     if (isDraftIntent) {
       targetStatus = "DRAFT";
-    } else if (isPublishIntent) {
-      targetStatus = "PUBLISHED";
+    } else if (isSubmitIntent) {
+      // Authors CANNOT publish directly. Any submit/publish intent sets status to PENDING_REVIEW
+      if (existingBook.status !== "PUBLISHED") {
+        targetStatus = "PENDING_REVIEW";
+      }
+    } else if (isSaveIntent) {
+      // BUG-002: ordinary save preserves existing status
+      targetStatus = existingBook.status;
     }
 
-    // If target status is PUBLISHED, enforce strict publish validation requirements
-    if (targetStatus === "PUBLISHED") {
+    // Authors can NEVER transition to PUBLISHED directly:
+    if (existingBook.status !== "PUBLISHED" && targetStatus === "PUBLISHED") {
+      targetStatus = "PENDING_REVIEW";
+    }
+
+    // If submitting for review (transitioning to PENDING_REVIEW), enforce BookPublishSchema
+    if (targetStatus === "PENDING_REVIEW" && isSubmitIntent) {
       const publishCheck = BookPublishSchema.safeParse(data);
       if (!publishCheck.success) {
         const fieldErrors = publishCheck.error.flatten().fieldErrors as Record<string, string[]>;
-        const firstError =
-          firstFieldError(fieldErrors, "Published books must keep all required publish fields complete.");
+        const firstError = firstFieldError(
+          fieldErrors,
+          "রিভিউয়ের জন্য জমা দেওয়ার আগে প্রয়োজনীয় সকল তথ্য ও কমপক্ষে ৫টি পূর্ণাঙ্গ অধ্যায় পূরণ থাকতে হবে।"
+        );
         return { success: false, error: firstError, fieldErrors };
       }
     }
@@ -599,7 +681,18 @@ export async function updateBook(
       console.warn("[updateBook] Non-fatal revalidation error:", revalidateError);
     }
 
-    return { success: true, bookId, slug: data.slug };
+    return {
+      success: true,
+      bookId,
+      slug: data.slug,
+      coverUrl: (updateSet.coverImage as string | null) ?? null,
+      message:
+        targetStatus === "PENDING_REVIEW"
+          ? "বইটি সফলভাবে রিভিউয়ের জন্য জমা দেওয়া হয়েছে"
+          : targetStatus === "PUBLISHED"
+          ? "বইয়ের তথ্য সংরক্ষিত হয়েছে"
+          : "খসড়া সংরক্ষিত হয়েছে",
+    };
   } catch (error) {
     console.error("updateBook error:", error);
     if (isDuplicateSlugError(error)) {
@@ -610,11 +703,11 @@ export async function updateBook(
 }
 
 // ---------------------------------------------------------------------------
-// publishBook
+// submitBookForReview — author submits book for admin approval
 // ---------------------------------------------------------------------------
 
-export async function publishBook(bookId: string): Promise<ActionResult> {
-  // 1. Authenticate + authorize
+export async function submitBookForReview(bookId: string): Promise<ActionResult> {
+  // 1. Authenticate + authorize as author
   const user = await requireAuthor();
 
   // 2. Validate bookId format
@@ -626,7 +719,7 @@ export async function publishBook(bookId: string): Promise<ActionResult> {
     // 3. Resolve Author._id from session
     const authorId = await resolveAuthorId(user.id);
 
-    // 4. Fetch the book with full data to validate publish requirements
+    // 4. Fetch the book to validate publish readiness requirements
     const book = await Book.findOne({
       _id: bookId,
       author: authorId,
@@ -635,19 +728,19 @@ export async function publishBook(bookId: string): Promise<ActionResult> {
     if (!book) {
       return {
         success: false,
-        error: "বইটি পাওয়া যায়নি অথবা আপনার এটি প্রকাশের অধিকার নেই",
+        error: "বইটি পাওয়া যায়নি অথবা আপনার এটি সম্পাদনার অধিকার নেই",
       };
     }
 
     if (book.status === "PUBLISHED") {
-      return { success: true, bookId, slug: book.slug }; // already published
+      return { success: false, error: "বইটি ইতিমধ্যে প্রকাশিত আছে।" };
     }
 
     if (book.status === "ARCHIVED") {
-      return { success: false, error: "Archived books cannot be published." };
+      return { success: false, error: "সংরক্ষিত বই রিভিউতে পাঠানো সম্ভব নয়।" };
     }
 
-    // 5. Validate publish requirements using the stricter schema
+    // 5. Validate publication readiness requirements
     const publishCheck = BookPublishSchema.safeParse({
       title: book.title,
       slug: book.slug,
@@ -667,7 +760,7 @@ export async function publishBook(bookId: string): Promise<ActionResult> {
         firstFieldError(
           publishCheck.error.flatten().fieldErrors as Record<string, string[]>,
           publishCheck.error.flatten().formErrors[0] ??
-            "প্রকাশের জন্য প্রয়োজনীয় তথ্য পূরণ করুন"
+            "রিভিউয়ের জন্য জমা দেওয়ার আগে প্রয়োজনীয় সকল তথ্য ও কমপক্ষে ৫টি পূর্ণাঙ্গ অধ্যায় পূরণ থাকতে হবে।"
         );
       return { success: false, error: firstError };
     }
@@ -677,82 +770,49 @@ export async function publishBook(bookId: string): Promise<ActionResult> {
       status: "ACTIVE",
     });
     if (!categoryIsActive) {
-      return { success: false, error: "Choose an active category before publishing." };
+      return { success: false, error: "রিভিউতে জমা দেওয়ার আগে একটি সক্রিয় ক্যাটাগরি নির্বাচন করুন।" };
     }
 
-    // 6. Set status to PUBLISHED
-    const isFirstPublication = !book.firstPublishedAt;
-    const updateSet: Record<string, unknown> = { status: "PUBLISHED" };
-    if (isFirstPublication) {
-      updateSet.firstPublishedAt = new Date();
-    }
-
-    const publishResult = await Book.updateOne(
-      { _id: bookId, author: authorId, status: "DRAFT" },
-      { $set: updateSet }
+    // 6. Atomically transition status to PENDING_REVIEW
+    const updateRes = await Book.updateOne(
+      { _id: bookId, author: authorId, status: { $in: ["DRAFT", "PENDING_REVIEW"] } },
+      { $set: { status: "PENDING_REVIEW" } }
     );
 
-    if (publishResult.matchedCount === 0) {
+    if (updateRes.matchedCount === 0) {
       return {
         success: false,
-        error: "Book status changed. Refresh the dashboard and try again.",
+        error: "বইয়ের স্ট্যাটাস পরিবর্তিত হয়েছে। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।",
       };
     }
 
-    if (publishResult.modifiedCount === 1 && isFirstPublication) {
-      try {
-        const [authorDoc, userDoc] = await Promise.all([
-          Author.findById(authorId).select("penName").lean(),
-          User.findById(user.id).select("email name").lean(),
-        ]);
-
-        const authorName = authorDoc?.penName || userDoc?.name || user.name || "লেখক";
-        const authorEmail = (userDoc?.email || user.email)?.trim().toLowerCase();
-
-        const notifications: Promise<unknown>[] = [
-          sendAdminBookPublishedEmail({
-            bookId: String(book._id),
-            bookTitle: book.title,
-            bookSlug: book.slug,
-            authorName,
-            price: book.price,
-            currency: book.currency || "BDT",
-          }),
-        ];
-
-        if (authorEmail) {
-          notifications.push(
-            sendAuthorBookPublishedEmail({
-              recipientEmail: authorEmail,
-              recipientName: authorName,
-              bookTitle: book.title,
-              bookSlug: book.slug,
-            })
-          );
-        } else {
-          console.warn(
-            "[publishBook] Skipped author confirmation email: No verified user email found."
-          );
-        }
-
-        await Promise.allSettled(notifications);
-      } catch (notifyErr) {
-        console.error(
-          "[publishBook] Non-fatal notification error:",
-          notifyErr instanceof Error ? notifyErr.message : "Unknown notification error"
-        );
-      }
-    }
-
     safeRevalidatePath("/author");
-    safeRevalidatePath("/books");
-    safeRevalidatePath(`/books/${book.slug}`);
+    safeRevalidatePath(`/author/books/${bookId}/edit`);
+    safeRevalidatePath("/admin");
+    safeRevalidatePath("/admin/books");
 
-    return { success: true, bookId, slug: book.slug };
+    return {
+      success: true,
+      bookId,
+      slug: book.slug,
+      message: "বইটি সফলভাবে রিভিউয়ের জন্য জমা দেওয়া হয়েছে",
+    };
   } catch (error) {
-    console.error("publishBook error:", error);
-    return { success: false, error: publicErrorMessage(error, GENERIC_PUBLISH_ERROR) };
+    console.error("submitBookForReview error:", error);
+    return { success: false, error: "রিভিউয়ের জন্য জমা দিতে সমস্যা হয়েছে। আবার চেষ্টা করুন।" };
   }
+}
+
+// ---------------------------------------------------------------------------
+// publishBook — STRICTLY BLOCKED for authors (Admin-only capability)
+// ---------------------------------------------------------------------------
+
+export async function publishBook(_bookId: string): Promise<ActionResult> {
+  void _bookId;
+  return {
+    success: false,
+    error: "লেখকদের সরাসরি বই প্রকাশের অনুমতি নেই। অনুগ্রহ করে রিভিউয়ের জন্য জমা দিন।",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -836,7 +896,7 @@ export async function archiveBook(bookId: string): Promise<ActionResult> {
     }
 
     const archiveResult = await Book.updateOne(
-      { _id: bookId, author: authorId, status: { $in: ["DRAFT", "PUBLISHED"] } },
+      { _id: bookId, author: authorId, status: { $in: ["DRAFT", "PENDING_REVIEW", "PUBLISHED"] } },
       { $set: { status: "ARCHIVED", displayOrder: 10000 } }
     );
 
@@ -870,7 +930,12 @@ export async function createBookAndRedirect(
   const result = await createBook(prevState, formData);
 
   if (result.success && result.bookId) {
-    redirect(`/author/books/${result.bookId}/edit?created=1`);
+    const actionIntent = String(formData.get("actionIntent") || "").trim().toLowerCase();
+    if (actionIntent === "submit" || actionIntent === "publish") {
+      redirect(`/author?tab=books&submitted=1`);
+    } else {
+      redirect(`/author/books/${result.bookId}/edit?created=1`);
+    }
   }
 
   return result;

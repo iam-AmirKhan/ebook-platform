@@ -52,6 +52,9 @@ function formValueToString(value: FormDataEntryValue | null): string {
 
 function getSocialLinksFromFormData(formData: FormData) {
   const platforms = formData.getAll("socialPlatform");
+  if (platforms.length === 0) {
+    return [];
+  }
   const urls = formData.getAll("socialUrl");
   const linkCount = Math.max(platforms.length, urls.length);
   const socialLinks: Array<{ platform: string; url: string }> = [];
@@ -106,6 +109,9 @@ export async function submitAuthorApplication(
       string,
       string[]
     >;
+    if (fieldErrors.socialLinks && !fieldErrors.socialUrl) {
+      fieldErrors.socialUrl = fieldErrors.socialLinks;
+    }
     return {
       success: false,
       error: Object.values(fieldErrors)[0]?.[0] ?? "ইনপুট ত্রুটি।",
@@ -1126,7 +1132,7 @@ export async function adminHideAuthorAction(
 export async function adminRestoreAuthorAction(
   targetId: string
 ): Promise<AdminReviewActionResult> {
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   if (!targetId || !mongoose.Types.ObjectId.isValid(targetId)) {
     return {
@@ -1167,13 +1173,49 @@ export async function adminRestoreAuthorAction(
     }
 
     if (!author) {
+      if (app && app.status === "REJECTED") {
+        if (app.user && String(app.user) === admin.id) {
+          return {
+            success: false,
+            error: "আপনি নিজের আবেদন নিজে সক্রিয় করতে পারবেন না।",
+          };
+        }
+
+        // Restore rejected AuthorApplication back to PENDING review state
+        app.status = "PENDING";
+        app.rejectionReason = null;
+        app.reviewedAt = null;
+        app.reviewedBy = null;
+        await app.save();
+
+        safeRevalidatePath("/");
+        safeRevalidatePath("/admin");
+        safeRevalidatePath("/admin/author-applications");
+        safeRevalidatePath("/become-author");
+
+        return {
+          success: true,
+          message: `"${app.displayName}"-এর আবেদনটি সফলভাবে আবার সক্রিয় করা হয়েছে এবং পর্যালোচনা (PENDING) তালিকায় স্থানান্তর করা হয়েছে।`,
+        };
+      }
+
       return {
         success: false,
-        error: "লেখক প্রোফাইল খুঁজে পাওয়া যায়নি।",
+        error: "আবেদন বা লেখক প্রোফাইল খুঁজে পাওয়া যায়নি।",
       };
     }
 
     if (author.status !== "INACTIVE" && author.status !== "REJECTED") {
+      if (app && app.status === "REJECTED") {
+        app.status = "APPROVED";
+        app.rejectionReason = null;
+        await app.save();
+        safeRevalidatePath("/admin/author-applications");
+        return {
+          success: true,
+          message: `"${author.penName}"-এর আবেদনটি সফলভাবে আবার সক্রিয় করা হয়েছে।`,
+        };
+      }
       return {
         success: false,
         error: "শুধুমাত্র লুকানো বা প্রত্যাখ্যাত লেখককে পুনরুদ্ধার করা সম্ভব।",
@@ -1239,5 +1281,11 @@ export async function adminRestoreAuthorAction(
       error: "লেখক পুনরুদ্ধার করতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।",
     };
   }
+}
+
+export async function reactivateAuthorApplicationAction(
+  targetId: string
+): Promise<AdminReviewActionResult> {
+  return adminRestoreAuthorAction(targetId);
 }
 

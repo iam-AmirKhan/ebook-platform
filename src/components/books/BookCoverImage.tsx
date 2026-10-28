@@ -22,6 +22,13 @@ export function BookCoverImage({
   showSpineShadow = true,
 }: BookCoverImageProps) {
   const [hasError, setHasError] = useState(false);
+  const [prevSrc, setPrevSrc] = useState(src);
+
+  // Reset error state whenever the image source prop changes
+  if (prevSrc !== src) {
+    setPrevSrc(src);
+    setHasError(false);
+  }
 
   // Derive a consistent hue from the title string for visual variety on placeholder
   const hue = title
@@ -46,7 +53,7 @@ export function BookCoverImage({
           alt={alt || `Cover of ${title}`}
           onError={() => setHasError(true)}
           className={`h-full w-full object-cover ${imgClassName}`}
-          loading="lazy"
+          loading={src?.startsWith("blob:") ? "eager" : "lazy"}
         />
       ) : (
         <div

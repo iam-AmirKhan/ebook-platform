@@ -1,11 +1,15 @@
 interface BookStatusBadgeProps {
-  status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  status: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "ARCHIVED";
 }
 
 const STATUS_CONFIG = {
   DRAFT: {
     label: "ড্রাফট",
     className: "bg-muted text-muted-foreground",
+  },
+  PENDING_REVIEW: {
+    label: "রিভিউ অপেক্ষমাণ",
+    className: "bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30",
   },
   PUBLISHED: {
     label: "প্রকাশিত",

@@ -287,6 +287,14 @@ export default async function BecomeAuthorPage() {
 
             <AuthorApplicationForm
               isAuthenticated={!!user}
+              userId={user?.id}
+              defaultDisplayName={user?.name}
+              email={user?.email}
+              lastApplicationDate={
+                application?.createdAt
+                  ? new Date(application.createdAt).toISOString()
+                  : undefined
+              }
             />
           </section>
         )}

@@ -15,12 +15,23 @@ interface CheckoutPageProps {
   params: Promise<{ slug: string }>;
 }
 
+function getSlugCandidates(slug: string): string[] {
+  let decodedSlug = slug;
+  try {
+    decodedSlug = decodeURIComponent(slug);
+  } catch {}
+  const rawLower = slug.trim().toLowerCase();
+  const decodedLower = decodedSlug.trim().toLowerCase();
+  return Array.from(new Set([rawLower, decodedLower, slug, decodedSlug]));
+}
+
 export async function generateMetadata({
   params,
 }: CheckoutPageProps): Promise<Metadata> {
   const resolvedParams = await params;
   await dbConnect();
-  const book = await Book.findOne({ slug: resolvedParams.slug, status: "PUBLISHED" })
+  const candidates = getSlugCandidates(resolvedParams.slug);
+  const book = await Book.findOne({ slug: { $in: candidates }, status: "PUBLISHED" })
     .select("title")
     .lean();
 
@@ -47,8 +58,9 @@ export default async function CheckoutPage({ params }: CheckoutPageProps) {
 
   await dbConnect();
 
+  const candidates = getSlugCandidates(resolvedParams.slug);
   const book = await Book.findOne({
-    slug: resolvedParams.slug,
+    slug: { $in: candidates },
     status: "PUBLISHED",
   })
     .populate<{ author: { penName: string } }>("author", "penName")

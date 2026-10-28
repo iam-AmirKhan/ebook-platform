@@ -21,7 +21,7 @@ export async function GET(
     return new Response(new Uint8Array(cover.buffer), {
       status: 200,
       headers: {
-        "Content-Type": cover.contentType,
+        "Content-Type": cover.contentType || "image/jpeg",
         "Content-Length": cover.length.toString(),
         "Cache-Control": "public, max-age=31536000, immutable",
       },
