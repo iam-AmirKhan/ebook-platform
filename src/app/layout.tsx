@@ -54,7 +54,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${hindSiliguri.variable} antialiased overflow-x-hidden`}
+      className={`${inter.variable} ${hindSiliguri.variable} antialiased`}
       suppressHydrationWarning
     >
       <head>
@@ -87,7 +87,7 @@ fbq('track', 'PageView');`,
         />
       </head>
       <body
-        className="min-h-screen min-h-dvh flex flex-col bg-background text-foreground overflow-x-hidden"
+        className="min-h-screen min-h-dvh flex flex-col bg-background text-foreground overflow-x-clip"
         suppressHydrationWarning
       >
         <noscript>
